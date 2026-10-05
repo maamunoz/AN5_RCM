@@ -93,16 +93,6 @@ public class SecTrajController : MonoBehaviour
         return s_liveCartesianSetpoint != null ? (float[])s_liveCartesianSetpoint.Clone() : null;
     }
 
-    /// Fires when ResolveJointTrajectory() finishes, with (point count, seconds taken,
-    /// succeeded). Instrumentation only -- nothing in the application subscribes; it
-    /// exists so the measurement harness (Assets/Scripts/Measurement, test P10) can
-    /// time the real preparation path instead of a reimplementation.
-    ///
-    /// Static for the same reason s_liveCartesianSetpoint above is: the scene carries
-    /// several duplicate "SecTraj" GameObjects and only one ever gets its buttons
-    /// wired, so an outside subscriber has no reliable way to pick the live instance.
-    public static event System.Action<int, double, bool> TrajectoryResolved;
-
     // InverseKinematicsSubscriber.ReceiveMessage() fires on RosSharp's websocket
     // network thread, not Unity's main thread -- same hazard SecCartInputController
     // already works around. Writing here only queues the raw payload; the actual
@@ -288,13 +278,9 @@ public class SecTrajController : MonoBehaviour
     }
 
     /// Loads and IK-resolves a trajectory file by path -- everything the CARGAR button
-    /// does once a file has actually been chosen. Split out of OpenFileDialog (which
-    /// now just picks the path and delegates here) so the same code path can be driven
-    /// programmatically: the measurement harness (Assets/Scripts/Measurement, test P10)
-    /// times trajectory preparation, and the native file dialog can't be operated from
-    /// code, so without this it would have had to reimplement the load in parallel and
-    /// would then be timing a copy rather than the real thing.
-    public IEnumerator LoadTrajectoryFile(string chosen)
+    /// does once a file has actually been chosen. Split out of OpenFileDialog, which
+    /// now just picks the path and delegates here.
+    private IEnumerator LoadTrajectoryFile(string chosen)
     {
         if (string.IsNullOrEmpty(chosen) || !File.Exists(chosen))
         {
@@ -361,20 +347,6 @@ public class SecTrajController : MonoBehaviour
     // practice (no real joint-limit/collision model) that this switched back to
     // letting ROS/MATLAB solve it, which already has that validation in production.
     private IEnumerator ResolveJointTrajectory()
-    {
-        // Thin timing wrapper around the real work, kept separate so the body below
-        // stays exactly as it was. Reports to the measurement harness (test P10) how
-        // long preparing this file took; nothing in the application listens.
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        int requestedPoints = _points.Count;
-
-        yield return StartCoroutine(ResolveJointTrajectoryCore());
-
-        stopwatch.Stop();
-        TrajectoryResolved?.Invoke(requestedPoints, stopwatch.Elapsed.TotalSeconds, _resolveSucceeded);
-    }
-
-    private IEnumerator ResolveJointTrajectoryCore()
     {
         _resolveSucceeded = false;
 

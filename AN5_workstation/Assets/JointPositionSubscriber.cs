@@ -229,8 +229,8 @@ public class JointPositionSubscriber : UnitySubscriber<RosString>
                 // lastPositions, así que GetLastKnownPositions() se quedaba
                 // con un valor de mitad de movimiento, desfasado hasta
                 // freezeThresholdDeg (0.5° por defecto) del real -- causaba
-                // que P6JointAccuracy (y cualquier otra espera de llegada que
-                // dependa de GetLastKnownPositions(), como
+                // que cualquier espera de llegada que dependa de
+                // GetLastKnownPositions() (como
                 // SecTrajController/SecCoordQueueController) leyera un
                 // "alcanzado" que nunca circuló como estado final real.
                 lastPositions = newPositions;

@@ -2,9 +2,9 @@ using UnityEngine;
 using UnityEngine.UI;
 
 /// Piezas mínimas de uGUI para los paneles que se auto-montan en runtime en Android/Quest
-/// (TrajectoryFileList, MeasurementHarnessVrPanel): ninguno tiene un Canvas preparado a
-/// mano en la escena, así que arman el suyo desde cero, y todos necesitan la misma terna
-/// -- fila, texto, botón -- para no repetir el boilerplate de uGUI en cada uno.
+/// (p. ej. TrajectoryFileList): ninguno tiene un Canvas preparado a mano en la escena,
+/// así que arman el suyo desde cero, y todos necesitan la misma terna -- fila, texto,
+/// botón -- para no repetir el boilerplate de uGUI en cada uno.
 public static class VrUiKit
 {
     public static Font DefaultFont()

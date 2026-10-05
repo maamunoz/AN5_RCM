@@ -15,8 +15,8 @@ namespace AN5.EditorTools
     /// Reconstruye Assets/Scenes/Quest_test_arnes.unity a partir de AN5_sim.unity.
     ///
     /// La escena Quest es una copia literal del entorno de AN5_sim (robot fr5v6,
-    /// laboratorio, conexión ROS2, arnés de mediciones P1-P10 y toda la UI) con las
-    /// adaptaciones mínimas para que funcione en un visor: XR Origin con locomoción
+    /// laboratorio, conexión ROS2 y toda la UI) con las adaptaciones mínimas para
+    /// que funcione en un visor: XR Origin con locomoción
     /// continua, la UI pasada a World Space e interacción por rayo desde los mandos.
     ///
     /// Está escrito como reconstrucción y no como edición incremental a propósito:
@@ -315,7 +315,6 @@ namespace AN5.EditorTools
             SetUpEventSystem(scene);
             SetUpKeyboard(scene);
             SetUpSimulator(scene);
-            ConfigureMeasurementHarness(scene);
 
             EditorSceneManager.MarkSceneDirty(scene);
             if (!EditorSceneManager.SaveScene(scene))
@@ -1385,57 +1384,6 @@ namespace AN5.EditorTools
             simulator.AddComponent<EditorOnlyGameObject>();
         }
 
-        // -----------------------------------------------------------------
-        // Arnés de mediciones
-        // -----------------------------------------------------------------
-        static void ConfigureMeasurementHarness(Scene scene)
-        {
-            var harness = FindRoot(scene, "MeasurementHarness");
-            if (harness == null)
-            {
-                Debug.LogWarning("[QuestSceneBuilder] La escena no trae MeasurementHarness.");
-                return;
-            }
-
-            bool hasVrPanel = false;
-            foreach (var behaviour in harness.GetComponents<MonoBehaviour>())
-            {
-                if (behaviour == null) continue;
-
-                if (behaviour.GetType().Name == "MeasurementHarnessVrPanel")
-                {
-                    hasVrPanel = true;
-                    continue;
-                }
-
-                if (behaviour.GetType().Name != "MeasurementSession")
-                    continue;
-
-                var so = new SerializedObject(behaviour);
-                var label = so.FindProperty("platformLabel");
-                // Queda en los environment.csv de cada corrida, que es lo que
-                // distingue estas medidas de las tomadas en el PC.
-                if (label != null) label.stringValue = "Quest2";
-                so.ApplyModifiedPropertiesWithoutUndo();
-            }
-
-            // MeasurementHarnessVrPanel es lo que hace visible y operable el arnés
-            // dentro del visor (el panel OnGUI de MeasurementSession no se ve ahí, ver
-            // el comentario de esa clase) -- sin esto, autoRunOnStart era la única
-            // forma de correr las pruebas en Quest. Va por nombre y no por tipo, igual
-            // que el chequeo de arriba, para no acoplar este builder de escritorio al
-            // ensamblado del arnés.
-            if (!hasVrPanel)
-            {
-                var panelType = System.AppDomain.CurrentDomain.GetAssemblies()
-                    .SelectMany(a => a.GetTypes())
-                    .FirstOrDefault(t => t.Name == "MeasurementHarnessVrPanel");
-                if (panelType != null)
-                    harness.AddComponent(panelType);
-                else
-                    Debug.LogWarning("[QuestSceneBuilder] No se encontró el tipo MeasurementHarnessVrPanel.");
-            }
-        }
 
         static void AddToBuildSettings()
         {

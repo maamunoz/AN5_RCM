@@ -20,13 +20,6 @@ evita el problema de fuga de sockets documentado mas abajo) ni el alias de
 IP -- Unity ya deberia poder enviar comandos (`JNTPoint`/`MoveJ`/`SplinePTP`)
 y ver el movimiento reflejado.
 
-**En esta rama de evaluacion** (`measurement-harness-senie`) sube ademas un
-quinto nodo, `measurement_probe` (activo por defecto solo aca, ver
-`measurement_probe_enabled` en `sim.launch.py`/`real.launch.py`): instrumenta
-`probe/ping`/`probe/pong`/`probe/seq` para el arnes de mediciones de Unity
-(`AN5_workstation/Assets/Scripts/Measurement/README.md`) y no participa de la
-operacion normal del robot ni del mock.
-
 Si hay que recompilar el paquete despues de tocar
 `mock_cmd_server.py` (o para aplicar una actualizacion):
 

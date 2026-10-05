@@ -71,27 +71,6 @@ def generate_launch_description():
         'matlab_bridge_port', default_value='9091',
         description='Puerto TCP de matlab_ik_bridge.')
 
-    measurement_probe_enabled = DeclareLaunchArgument(
-        'measurement_probe_enabled', default_value='true',
-        description=(
-            'Si es true, levanta measurement_probe: eco probe/ping -> '
-            'probe/pong y contador probe/seq, usados por el arnes de '
-            'mediciones de Unity para medir ida y vuelta y perdida de '
-            'mensajes. Default true EN ESTA RAMA de evaluacion (rama '
-            'measurement-harness-senie), para que alcance con "ros2 launch" '
-            'sin argumentos extra al bajar la rama y probar. En main sigue '
-            'siendo false: ahi no forma parte de la operacion normal y hay '
-            'que pedirlo a proposito con measurement_probe_enabled:=true. '
-            'Para desactivarlo puntualmente en esta rama: '
-            'measurement_probe_enabled:=false.'))
-
-    measurement_probe_seq_rate_hz = DeclareLaunchArgument(
-        'measurement_probe_seq_rate_hz', default_value='50.0',
-        description=(
-            'Frecuencia del contador probe/seq (Hz). Por defecto igual a '
-            'joint_states_rate_hz para que la perdida medida sea '
-            'representativa del flujo real.'))
-
     rosbridge_launch = IncludeLaunchDescription(
         AnyLaunchDescriptionSource(
             PathJoinSubstitution([
@@ -131,17 +110,6 @@ def generate_launch_description():
         condition=IfCondition(LaunchConfiguration('matlab_bridge_enabled')),
     )
 
-    measurement_probe_node = Node(
-        package='an5_mock_sim',
-        executable='measurement_probe',
-        name='measurement_probe',
-        output='screen',
-        parameters=[{
-            'seq_rate_hz': LaunchConfiguration('measurement_probe_seq_rate_hz'),
-        }],
-        condition=IfCondition(LaunchConfiguration('measurement_probe_enabled')),
-    )
-
     return LaunchDescription([
         include_publisher_subscriber,
         joint_states_rate_hz,
@@ -150,11 +118,8 @@ def generate_launch_description():
         initial_joint_positions_deg,
         matlab_bridge_enabled,
         matlab_bridge_port,
-        measurement_probe_enabled,
-        measurement_probe_seq_rate_hz,
         rosbridge_launch,
         publisher_subscriber_node,
         mock_cmd_server_node,
         matlab_ik_bridge_node,
-        measurement_probe_node,
     ])

@@ -1,8 +1,8 @@
 # Escena `Quest_test_arnes`
 
-Es el entorno de `AN5_sim` (robot fr5v6, laboratorio, conexión ROS2, toda la UI y el
-arnés de mediciones P1–P10) llevado a un visor Meta Quest 2, con locomoción y con la
-simulación XR del editor activa para poder validarlo antes de subirlo a las gafas.
+Es el entorno de `AN5_sim` (robot fr5v6, laboratorio, conexión ROS2 y toda la UI)
+llevado a un visor Meta Quest 2, con locomoción y con la simulación XR del editor
+activa para poder validarlo antes de subirlo a las gafas.
 
 ## Cómo se genera
 
@@ -33,7 +33,6 @@ sobrevivir, va en el constructor.
 | Interacción con la UI | ratón | rayo y toque directo desde los mandos (`TrackedDeviceGraphicRaycaster` + `XRUIInputModule`) |
 | Suelo | `Floor` desactivado | `Floor` activo y ajustado a la sala |
 | Simulación | — | prefab `XR Interaction Simulator` en la escena |
-| `MeasurementSession.platformLabel` | `Windows-PC` | `Quest2` |
 
 Se desactivan además los controles que solo tienen sentido con una ventana de
 escritorio: `DPad_Orbit`, `DPad_Translate`, `ZoomSlider` y los botones de
@@ -457,9 +456,6 @@ cual, en Screen Space: si alguna vez se reactiva, hay que pasarlo a World Space 
    mientras se gira o se desplaza el mando. La ventana debe acompañarlo sin volcarse y
    quedarse donde se suelte.
 
-El arnés de mediciones sigue funcionando igual que en escritorio: su panel IMGUI (`F9`)
-se dibuja en el Game View del editor.
-
 ## Pendiente antes de subirlo a las gafas
 
 Nada de esto está hecho: la escena está configurada **para simulación**, como se pidió.
@@ -473,12 +469,8 @@ Nada de esto está hecho: la escena está configurada **para simulación**, como
 2. **Quitar el `XR Interaction Simulator` de la escena.** Su componente solo compila
    en editor y standalone (`AR_FOUNDATION_5_2_OR_NEWER && (UNITY_EDITOR || …)`), así
    que en una build de Android queda como script perdido.
-3. **`MeasurementSession.autoRunOnStart`.** Está en `false` para poder validar en el
-   editor. En el visor no hay panel IMGUI usable, así que para correr la batería
-   dentro de las gafas hay que ponerlo en `true` (el campo ya existe justamente para
-   eso) o darle una UI en World Space.
-4. **Rendimiento.** El proyecto usa el pipeline integrado y espacio de color Gamma.
+3. **Rendimiento.** El proyecto usa el pipeline integrado y espacio de color Gamma.
    Para Quest 2 conviene revisar espacio de color Lineal y las opciones de calidad
-   antes de dar por buenas las cifras de P7 (gráficos) tomadas en el visor.
-5. **Red.** En el visor, `RosConnector` tiene que apuntar a una IP de rosbridge
+   antes de dar por buen el framerate en el visor.
+4. **Red.** En el visor, `RosConnector` tiene que apuntar a una IP de rosbridge
    alcanzable desde la WiFi de las gafas: `localhost` deja de servir.

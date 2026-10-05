@@ -10,11 +10,11 @@ using FRStateMsg = RosSharp.RosBridgeClient.MessageTypes.Frhal.FRState;
 /// robot_motion_done: 1 cuando el controlador reporta el movimiento en curso
 /// como terminado, 0 mientras se sigue moviendo.
 ///
-/// A diferencia de WaitForJointArrival (MeasurementTest.cs), que infiere
-/// "llegada" mirando si la posición YA ENTRÓ en una tolerancia, esto es una
-/// señal explícita del propio controlador de que el movimiento terminó de
-/// asentar -- un margen adicional útil sobre todo contra el robot físico, cuya
-/// dinámica de asentamiento no es la del emulador. Ver P6JointAccuracy.cs.
+/// A diferencia de inferir "llegada" mirando si la posición YA ENTRÓ en una
+/// tolerancia, esto es una señal explícita del propio controlador de que el
+/// movimiento terminó de asentar -- un margen adicional útil sobre todo
+/// contra el robot físico, cuya dinámica de asentamiento no es la del
+/// emulador.
 ///
 /// Igual que JointPositionSubscriber/CartesianPositionSubscriber/
 /// SetpointCartesianPositionSubscriber: se apoya en el mismo RosConnector
