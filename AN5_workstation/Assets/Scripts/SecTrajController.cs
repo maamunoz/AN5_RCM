@@ -11,32 +11,12 @@ public class SecTrajController : MonoBehaviour
     public Ros2CommandSender ros2CommandSender;
     public JointPositionSubscriber jointPositionSubscriber;
     public CartesianPositionSubscriber cartesianPositionSubscriber;
-    // Resolves each cartesian waypoint to joint angles via the ROS/MATLAB IK launch
-    // (input_cartesian_position -> output_joint_position), same bridge
-    // CartesianStateWriterNew/SecCartInputController already use -- see
-    // ResolveJointTrajectory. Local Unity IK (RobotKinematics.MgiAn5) was tried here
-    // instead for a while, but its geometric heuristic (no real joint-limit/collision
-    // model, just capsule approximations) produced positions strange enough in
-    // practice that this went back to letting ROS/MATLAB solve it, same as every
-    // other panel in this project.
-    public InverseKinematicsSubscriber ikSubscriber;
 
     [Header("Delay between commands (seconds)")]
     public float commandDelay = 0.05f;
 
     [Header("Joint arrival tolerance (deg)")]
     public float jointToleranceDeg = 1f;
-
-    [Header("IK request (ROS/MATLAB, see ResolveJointTrajectory)")]
-    public float ikTimeoutSeconds = 5f;
-
-    [Tooltip("Timeout used only for the one cold-start retry in ResolveJointTrajectory. " +
-             "matlab_ik_node's very first fr5_ik() call in a fresh MATLAB session measured " +
-             "~13s in practice (vs. low-milliseconds for every call after it) -- a one-time " +
-             "JIT/parse cost, not the algorithm itself. ikTimeoutSeconds alone (5s) isn't " +
-             "enough to survive that, so the retry gets this much larger budget instead of " +
-             "reusing ikTimeoutSeconds.")]
-    public float ikColdStartRetryTimeoutSeconds = 25f;
 
     [Header("Arrival mode")]
     [Tooltip("When true, sends MoveJ per point and waits for current_joint_position to confirm arrival before " +
@@ -50,7 +30,7 @@ public class SecTrajController : MonoBehaviour
              "hardware, so cartesian commands are never sent directly to the robot.")]
     public bool waitForCartesianArrival = true;
 
-    [Header("Loading overlay — shown while ResolveJointTrajectory waits on ROS/MATLAB")]
+    [Header("Loading overlay — shown while ResolveJointTrajectory runs (local IK, near-instant)")]
     public LoadingOverlayController loadingOverlay;
 
     [Header("UI — auto-resolved from hierarchy if null")]
@@ -72,7 +52,6 @@ public class SecTrajController : MonoBehaviour
     private int          _execGeneration;
 
     private bool _fullyWired;
-    private bool _ikSubscribed;
     private bool _resolveSucceeded;
 
     // The cartesian point currently being driven toward, or null while idle. Static
@@ -93,33 +72,10 @@ public class SecTrajController : MonoBehaviour
         return s_liveCartesianSetpoint != null ? (float[])s_liveCartesianSetpoint.Clone() : null;
     }
 
-    // InverseKinematicsSubscriber.ReceiveMessage() fires on RosSharp's websocket
-    // network thread, not Unity's main thread -- same hazard SecCartInputController
-    // already works around. Writing here only queues the raw payload; the actual
-    // parsing happens in WaitForIkResult (main thread, driven from a coroutine).
-    private readonly object _ikPendingLock = new object();
-    private string _ikPendingData;
-    private bool _ikHasPendingData;
-
     void Start()
     {
         EnsureWired();
         SetProgress(0f);
-    }
-
-    void OnDestroy()
-    {
-        if (ikSubscriber != null)
-            ikSubscriber.OnInverseKinematicsResultReceived -= OnIkResultReceivedFromNetworkThread;
-    }
-
-    private void OnIkResultReceivedFromNetworkThread(string data)
-    {
-        lock (_ikPendingLock)
-        {
-            _ikPendingData = data;
-            _ikHasPendingData = true;
-        }
     }
 
     // FindObjectOfType<T>() depends on the target (Ros2CommandSender,
@@ -146,15 +102,8 @@ public class SecTrajController : MonoBehaviour
             jointPositionSubscriber = FindObjectOfType<JointPositionSubscriber>();
         if (cartesianPositionSubscriber == null)
             cartesianPositionSubscriber = FindObjectOfType<CartesianPositionSubscriber>();
-        if (ikSubscriber == null)
-            ikSubscriber = FindObjectOfType<InverseKinematicsSubscriber>();
         if (loadingOverlay == null)
             loadingOverlay = FindObjectOfType<LoadingOverlayController>();
-        if (ikSubscriber != null && !_ikSubscribed)
-        {
-            ikSubscriber.OnInverseKinematicsResultReceived += OnIkResultReceivedFromNetworkThread;
-            _ikSubscribed = true;
-        }
 
         if (cargarButton == null)
         {
@@ -202,10 +151,9 @@ public class SecTrajController : MonoBehaviour
         // cartesianPositionSubscriber is no longer required for ExecutePoints (motion is
         // sent in joint space and confirmed via jointPositionSubscriber), so it's not
         // part of this gate -- it stays as an auto-resolved field only in case some
-        // other consumer of this component reads it later. ikSubscriber IS required:
-        // without it ResolveJointTrajectory has no way to get joint angles for any
-        // loaded file.
-        _fullyWired = ros2CommandSender != null && jointPositionSubscriber != null && ikSubscriber != null
+        // other consumer of this component reads it later. IK resolution is local
+        // (FR5AnalyticIK, see ResolveJointTrajectory) and needs no ROS wiring of its own.
+        _fullyWired = ros2CommandSender != null && jointPositionSubscriber != null
                       && cargarButton != null && execButton != null && pauseButton != null && stopButton != null;
     }
 
@@ -336,145 +284,66 @@ public class SecTrajController : MonoBehaviour
         }
     }
 
-    // Resolves every loaded cartesian waypoint to joint angles (degrees) via the
-    // ROS/MATLAB IK launch, same bridge CartesianStateWriterNew/SecCartInputController
-    // already use: publish "x,y,z,rx,ry,rz" to input_cartesian_position and wait for
-    // the matching reply on output_joint_position. Requests are sent ONE AT A TIME,
-    // in order, each waiting for its own reply before the next point is requested --
-    // there's no request ID in this protocol, so overlapping requests could get each
-    // other's replies crossed. Local Unity IK (RobotKinematics.MgiAn5) was used here
-    // before, but its geometric heuristic produced positions strange enough in
-    // practice (no real joint-limit/collision model) that this switched back to
-    // letting ROS/MATLAB solve it, which already has that validation in production.
+    // Resolves every loaded cartesian waypoint to joint angles (degrees) locally
+    // (FR5AnalyticIK) instead of the ROS/MATLAB round-trip this used before --
+    // input_cartesian_position/output_joint_position only ever worked in simulation
+    // anyway (the real driver has no subscriber for those topics), and resolving a
+    // whole file one point at a time over that bridge meant one network round-trip
+    // per waypoint. FR5AnalyticIK solves against the exact same DH table
+    // LocalForwardKinematics already uses for FK, so it's consistent with everything
+    // else in the app, and was validated against the real waypoints in routines/*.txt
+    // (see its header comment for the theta6 bug that was found and fixed there) --
+    // it's a different, verified solver from the geometric heuristic
+    // (RobotKinematics.MgiAn5) tried here previously and abandoned for producing
+    // unreliable positions; FR5AnalyticIK re-verifies every candidate against its own
+    // forward kinematics before returning it, so a wrong-but-silent point is not
+    // possible here either.
+    //
+    // Each point is solved relative to the previous one's joints (seeded from the
+    // robot's actual current position for the first point) so the chosen kinematic
+    // configuration (shoulder/elbow/wrist branch) stays continuous along the file
+    // instead of jumping between equally-valid-but-different arm configurations
+    // point to point.
     private IEnumerator ResolveJointTrajectory()
     {
         _resolveSucceeded = false;
 
-        if (ros2CommandSender == null || ikSubscriber == null)
-        {
-            Debug.LogError("[SecTrajController] Ros2CommandSender o InverseKinematicsSubscriber no asignados; " +
-                            "no se puede resolver IK vía ROS.");
-            yield break;
-        }
+        float[] currentDeg = GetSeedJointsDeg();
 
         for (int i = 0; i < _points.Count; i++)
         {
             float[] c = _points[i].cart;
-            string cartesianCommand = $"{c[0]},{c[1]},{c[2]},{c[3]},{c[4]},{c[5]}";
+            var result = FR5AnalyticIK.Solve(c[0], c[1], c[2], c[3], c[4], c[5], currentDeg);
 
-            float[] resultDeg = null;
-            string errorReason = null;
-
-            // One retry, timeout-only: matlab_ik_node's first fr5_ik() call in a fresh
-            // MATLAB session runs noticeably slower than every call after it (one-time
-            // JIT/parse cost, not the algorithm itself) -- observed in practice taking
-            // longer than ikTimeoutSeconds (5s default), which made the FIRST file
-            // loaded after starting/restarting the MATLAB node always get its point 1
-            // rejected and the whole load cancelled (all-or-nothing), even though a
-            // second attempt (now warmed up) resolved every point fine. Retrying once
-            // absorbs that one-time cost transparently. Not retried for NaN/unreachable
-            // or malformed-response errors: those are about the pose itself, so MATLAB
-            // would just return the same rejection again.
-            for (int attempt = 1; attempt <= 2; attempt++)
+            if (!result.Success)
             {
-                ros2CommandSender.SendCommandToTopic(ros2CommandSender.inverseInputTopic, cartesianCommand);
-                Debug.Log($"[SecTrajController] Solicitando IK (ROS) para punto {i + 1}/{_points.Count}" +
-                          (attempt > 1 ? $" (reintento {attempt})" : "") + $": {cartesianCommand}");
-
-                resultDeg = null;
-                errorReason = null;
-                float attemptTimeout = attempt == 1 ? ikTimeoutSeconds : ikColdStartRetryTimeoutSeconds;
-                yield return StartCoroutine(WaitForIkResult(a => resultDeg = a, e => errorReason = e, attemptTimeout));
-
-                bool isTimeout = errorReason != null && errorReason.StartsWith("timeout");
-                if (errorReason == null || !isTimeout || attempt == 2)
-                    break;
-
-                Debug.LogWarning($"[SecTrajController] Punto {i + 1}/{_points.Count}: {errorReason}. " +
-                                  $"Reintentando una vez con timeout extendido ({ikColdStartRetryTimeoutSeconds}s, " +
-                                  "posible arranque en frío del nodo ROS/MATLAB)...");
-            }
-
-            if (errorReason != null)
-            {
-                Debug.LogError($"[SecTrajController] Punto {i + 1}/{_points.Count} rechazado: {errorReason}. " +
+                Debug.LogError($"[SecTrajController] Punto {i + 1}/{_points.Count} rechazado: {result.FailureReason}. " +
                                 "Se cancela la carga del archivo completo.");
                 yield break;
             }
 
-            _jointPoints.Add(resultDeg);
+            _jointPoints.Add(result.JointsDeg);
+            currentDeg = result.JointsDeg;
+
+            // Resolving is local math (no network wait), but still yield periodically
+            // on long files so loading one doesn't stall a frame for the whole file.
+            if (i % 25 == 24) yield return null;
         }
 
-        Debug.Log($"[SecTrajController] IK vía ROS resuelto para {_jointPoints.Count} puntos.");
+        Debug.Log($"[SecTrajController] IK local resuelto para {_jointPoints.Count} puntos.");
         _resolveSucceeded = true;
     }
 
-    // Drains the next output_joint_position reply (queued by
-    // OnIkResultReceivedFromNetworkThread) and reports it via onSuccess/onError.
-    // Handles both failure conventions seen on this topic: the mock's explicit
-    // "ERROR:<reason>" prefix, and MATLAB's inverse_kinematics.m, which instead
-    // publishes literal "NaN,NaN,NaN,NaN,NaN,NaN" for an unreachable/unsolved pose
-    // (its isempty()-based check doesn't catch a NaN(1,6) array) -- checked for
-    // explicitly here since a NaN slipping through and being sent as a JNTPoint
-    // command would be a lot worse than treating it as this point's failure.
-    private IEnumerator WaitForIkResult(System.Action<float[]> onSuccess, System.Action<string> onError, float timeoutSeconds)
+    // Starting joint pose for the first waypoint's IK solve -- the robot's actual
+    // current position when available (real or sim), so the loaded trajectory
+    // continues from wherever the arm already is instead of an arbitrary pose that
+    // might favor a different (but equally valid) kinematic configuration than the
+    // one the arm would naturally continue in.
+    private float[] GetSeedJointsDeg()
     {
-        lock (_ikPendingLock) { _ikHasPendingData = false; }
-        float start = Time.time;
-
-        while (true)
-        {
-            string data = null;
-            lock (_ikPendingLock)
-            {
-                if (_ikHasPendingData) { data = _ikPendingData; _ikHasPendingData = false; }
-            }
-
-            if (data != null)
-            {
-                if (data.StartsWith("ERROR:"))
-                {
-                    onError(data.Substring("ERROR:".Length));
-                    yield break;
-                }
-
-                string[] parts = data.Split(',');
-                if (parts.Length != 6)
-                {
-                    onError($"respuesta IK con formato inesperado: '{data}'");
-                    yield break;
-                }
-
-                float[] angles = new float[6];
-                bool ok = true;
-                for (int j = 0; j < 6; j++)
-                {
-                    if (!float.TryParse(parts[j], NumberStyles.Float, CultureInfo.InvariantCulture, out angles[j])
-                        || float.IsNaN(angles[j]))
-                    {
-                        ok = false;
-                        break;
-                    }
-                }
-
-                if (!ok)
-                {
-                    onError($"posición inalcanzable (IK devolvió NaN o datos inválidos: '{data}')");
-                    yield break;
-                }
-
-                onSuccess(angles);
-                yield break;
-            }
-
-            if (Time.time - start > timeoutSeconds)
-            {
-                onError("timeout esperando respuesta de IK (¿está corriendo el nodo ROS/MATLAB?)");
-                yield break;
-            }
-
-            yield return null;
-        }
+        float[] real = jointPositionSubscriber != null ? jointPositionSubscriber.GetLastKnownPositions() : null;
+        if (real != null && real.Length == 6) return real;
+        return new float[] { 0f, -90f, 90f, -90f, -90f, 0f };
     }
 
     // Parses a "x,y,z,rx,ry,rz,speed,delay" line, e.g.

@@ -72,6 +72,12 @@ public class SetpointCartesianPositionSubscriber : UnitySubscriber<RosString>
         _hasReceivedSetpoint = true;
     }
 
+    /// Modo Simulacion (LocalRobotSimulator): mismo camino que un mensaje de ROS.
+    public void InjectLocal(string data)
+    {
+        ReceiveMessage(new RosString { data = data });
+    }
+
     public float[] GetLastKnownSetpoint()
     {
         return (float[])lastSetpoint.Clone();

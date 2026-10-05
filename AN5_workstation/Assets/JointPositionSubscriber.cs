@@ -121,6 +121,13 @@ public class JointPositionSubscriber : UnitySubscriber<RosString>
         }
     }
 
+    /// Modo Simulacion (LocalRobotSimulator): entrega el mismo CSV que publicaria
+    /// current_joint_position, por el mismo camino que un mensaje de ROS.
+    public void InjectLocal(string data)
+    {
+        ReceiveMessage(new RosString { data = data });
+    }
+
     private void Update()
     {
         string data;

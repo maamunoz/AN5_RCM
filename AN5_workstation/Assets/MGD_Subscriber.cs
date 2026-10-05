@@ -25,6 +25,12 @@ public class MGD_Subscriber : UnitySubscriber<RosString>
         base.Start(); // Ahora se suscribe al tópico correcto
     }
 
+    /// Modo Simulacion (LocalRobotSimulator): FK resuelta local, mismo camino que ROS.
+    public void InjectLocal(string data)
+    {
+        ReceiveMessage(new RosString { data = data });
+    }
+
     // Método que se llama al recibir un mensaje del tópico suscrito
     protected override void ReceiveMessage(RosString message)
     {

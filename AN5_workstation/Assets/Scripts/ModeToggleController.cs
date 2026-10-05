@@ -4,14 +4,12 @@ using UnityEngine.UI;
 using RosSharp.RosBridgeClient;
 
 /// Attached to ModeToggle in PersistentLayer/Header.
-/// BtnReal/BtnSim used to load a separate AN5_workbench scene for the real
-/// robot; that scene is gone, so both buttons now just pin the RosConnector
-/// to the right ROS2 endpoint (Eje. Real -> physical robot controller IP,
-/// Simulacion -> localhost/mock) and stay on this same scene.
+/// Eje. Real: RosConnector conectado al controlador fisico (como siempre).
+/// Simulacion: sin ROS -- RosConnector desconectado y todo el robot corre local
+/// en LocalRobotSimulator (comandos, interpolacion, estado e IK/FK). Ver RobotMode.
 public class ModeToggleController : MonoBehaviour
 {
     const string RosUrlReal = "ws://192.168.58.3:9090";
-    const string RosUrlSim  = "ws://localhost:9090";
 
     static readonly Color ActiveBg          = new Color(0.000f, 0.831f, 0.667f, 1.000f);
     static readonly Color ActiveHighlighted = new Color(0.000f, 0.900f, 0.720f, 1.000f);
@@ -46,39 +44,51 @@ public class ModeToggleController : MonoBehaviour
         // overwriting our state on the very first frame.
         yield return null;
 
-        // Default to Simulacion on launch — matches this scene's own
-        // RosConnector.RosBridgeServerUrl (localhost), so no reconnect fires.
+        // Simulacion por defecto al arrancar (RobotMode ya arranca asi y
+        // RosConnector.Awake ya no se conecto).
         _realModeActive = false;
         SetHighlight(_realModeActive);
-        ApplyRosUrl(_realModeActive);
+        ApplyMode(_realModeActive);
     }
 
     public void SetRealMode()
     {
         _realModeActive = true;
         SetHighlight(_realModeActive);
-        ApplyRosUrl(_realModeActive);
+        ApplyMode(_realModeActive);
     }
 
     public void SetSimMode()
     {
         _realModeActive = false;
         SetHighlight(_realModeActive);
-        ApplyRosUrl(_realModeActive);
+        ApplyMode(_realModeActive);
     }
 
-    void ApplyRosUrl(bool realIsActive)
+    void ApplyMode(bool realIsActive)
     {
+        bool wasSimulation = RobotMode.IsSimulation;
+        RobotMode.Set(!realIsActive);
+
         var rosConnector = FindObjectOfType<RosConnector>();
         if (rosConnector == null) return;
 
-        string targetUrl = realIsActive ? RosUrlReal : RosUrlSim;
-        if (rosConnector.RosBridgeServerUrl == targetUrl)
+        if (!realIsActive)
+        {
+            if (!rosConnector.IsSuspended)
+                rosConnector.Disconnect();
+            Debug.Log("[ModeToggleController] Simulacion: sin ROS, robot simulado local.");
             return;
+        }
 
-        Debug.Log($"[ModeToggleController] Pinning RosConnector to {(realIsActive ? "Eje. Real" : "Simulacion")}: {targetUrl}");
-        rosConnector.RosBridgeServerUrl = targetUrl;
-        rosConnector.ReconnectNow();
+        // Ejec. Real: reconectar si veniamos de Simulacion (conexion suspendida)
+        // o si la URL no era la del controlador fisico.
+        if (wasSimulation || rosConnector.IsSuspended || rosConnector.RosBridgeServerUrl != RosUrlReal)
+        {
+            Debug.Log($"[ModeToggleController] Eje. Real: conectando a {RosUrlReal}");
+            rosConnector.RosBridgeServerUrl = RosUrlReal;
+            rosConnector.ReconnectNow();
+        }
 
         // Keep the Configuracion panel's IP/Puerto fields in sync so they
         // don't keep showing whatever was there before this mode switch.

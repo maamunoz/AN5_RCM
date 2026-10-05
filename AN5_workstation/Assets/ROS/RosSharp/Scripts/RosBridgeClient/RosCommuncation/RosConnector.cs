@@ -65,20 +65,54 @@ namespace RosSharp.RosBridgeClient
         // ya no es la generación vigente, se retira solo.
         private volatile int _connectionGeneration = 0;
 
+        // true en modo Simulacion (RobotMode.IsSimulation): no hay ROS, la app corre
+        // todo local (LocalRobotSimulator), asi que no se conecta ni auto-reconecta.
+        // Lo levanta ReconnectNow() (paso a Ejec. Real) y lo vuelve a poner Disconnect().
+        private volatile bool _suspended;
+        public bool IsSuspended { get { return _suspended; } }
+
         public virtual void Awake()
         {
             IsConnected = new ManualResetEvent(false);
+
+            _suspended = RobotMode.IsSimulation;
+            if (_suspended) return;
 
             // Iniciamos la conexión en un hilo separado (auto reconexión con bucle y retraso)
             connectionThread = new Thread(ConnectAndWait);
             connectionThread.Start();
         }
 
+        // Corta la conexion y suspende la auto-reconexion (modo Simulacion). Los
+        // suscriptores siguen vivos esperando IsConnected; al volver a Ejec. Real
+        // (ReconnectNow) se re-suscriben solos via sus watchers de reconexion.
+        public void Disconnect()
+        {
+            _suspended = true;
+            _connectionGeneration++;
+            IsConnected.Reset();
+            isReconnecting = false;
+
+            var socket = RosSocket;
+            RosSocket = null;
+            if (socket != null)
+            {
+                try { socket.Close(); }
+                catch (Exception e) { Debug.LogWarning("RosConnector.Disconnect: " + e.Message); }
+            }
+            Debug.Log("RosConnector desconectado (modo Simulacion, sin ROS).");
+        }
+
         private void Start()
         {
         
             if (reconnectButton != null)
-                reconnectButton.onClick.AddListener(ReconnectNow);
+                reconnectButton.onClick.AddListener(() =>
+                {
+                    // En Simulacion no hay ROS; solo ModeToggleController reconecta al pasar a Eje. Real.
+                    if (RobotMode.IsSimulation) return;
+                    ReconnectNow();
+                });
         }
 
         private void Update()
@@ -86,7 +120,12 @@ namespace RosSharp.RosBridgeClient
           
             if (statusText != null)
             {
-                if (IsOnline)
+                if (_suspended)
+                {
+                    statusText.text = "LOCAL";
+                    statusText.color = new Color(0f, 0.831f, 0.667f, 1f);
+                }
+                else if (IsOnline)
                 {
                     statusText.text = "ONLINE";
                     statusText.color = Color.green;
@@ -104,7 +143,7 @@ namespace RosSharp.RosBridgeClient
         {
             int myGeneration = _connectionGeneration;
 
-            while (myGeneration == _connectionGeneration)
+            while (myGeneration == _connectionGeneration && !_suspended)
             {
                 RosSocket = ConnectToRos(protocol, RosBridgeServerUrl, OnConnected, OnClosed, Serializer);
 
@@ -150,6 +189,7 @@ namespace RosSharp.RosBridgeClient
         public void ReconnectNow()
         {
             Debug.Log("Manual reconnect now...");
+            _suspended = false;
 
             // Cancela cooperativamente el hilo que pudiera estar en medio del bucle de
             // auto reconexión (ver el comentario de _connectionGeneration): sin
@@ -190,6 +230,9 @@ namespace RosSharp.RosBridgeClient
         {
             IsConnected.Reset();
             Debug.Log("Disconnected from RosBridge: " + RosBridgeServerUrl);
+
+            // Desconexion pedida (modo Simulacion): no auto-reconectar.
+            if (_suspended) return;
 
             // Lógica de auto reconexión (con retardo)
             if (!isReconnecting)

@@ -75,6 +75,12 @@ public class InverseKinematicsSubscriber : UnitySubscriber<RosString>
         }
     }
 
+    /// Modo Simulacion (LocalRobotSimulator): IK resuelta local, mismo camino que ROS.
+    public void InjectLocal(string data)
+    {
+        ReceiveMessage(new RosString { data = data });
+    }
+
     // Método que se llama al recibir un mensaje del tópico suscrito.
  protected override void ReceiveMessage(RosString message)
 {

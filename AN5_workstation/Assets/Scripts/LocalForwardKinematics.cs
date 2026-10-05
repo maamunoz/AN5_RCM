@@ -12,14 +12,9 @@ using System;
 // removes the race entirely and works even when ROS/MGD_Node isn't connected.
 public static class LocalForwardKinematics
 {
-    private static readonly double[,] DhParams = {
-        {0, Math.PI / 2, 0.152, 0},
-        {-0.425, 0, 0, 0},
-        {-0.395, 0, 0, 0},
-        {0, Math.PI / 2, 0.102, 0},
-        {0, -Math.PI / 2, 0.102, 0},
-        {0, 0, 0.267, 0}
-    };
+    // Tabla compartida con FR5AnalyticIK.cs (ver Fr5DhTable) -- ambas deben operar
+    // sobre la misma cadena DH.
+    private static readonly double[,] DhParams = Fr5DhTable.Params;
 
     // jointsDeg: 6 joint angles in degrees. Returns {x_mm, y_mm, z_mm, rx_deg, ry_deg, rz_deg}.
     public static float[] CartesianFromJointsDeg(float[] jointsDeg)

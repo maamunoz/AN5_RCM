@@ -94,6 +94,12 @@ public class CartesianPositionSubscriber : UnitySubscriber<RosString>
         }
         lastCartesianPositions = positions;
     }
+    /// Modo Simulacion (LocalRobotSimulator): mismo camino que un mensaje de ROS.
+    public void InjectLocal(string data)
+    {
+        ReceiveMessage(new RosString { data = data });
+    }
+
     /// Devuelve una copia de la última posición conocida.
     public float[] GetLastKnownCartesianPositions()
     {

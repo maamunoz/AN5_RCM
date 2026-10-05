@@ -82,6 +82,17 @@ public class RobotMotionDoneSubscriber : UnitySubscriber<FRStateMsg>
         }
     }
 
+    /// Modo Simulacion (LocalRobotSimulator): equivale a recibir robot_motion_done
+    /// en nonrt_state_data, sin construir el FRState completo.
+    public void InjectLocalMotionDone(bool done)
+    {
+        lock (_pendingLock)
+        {
+            _pendingValue = done ? 1 : 0;
+            _hasPendingData = true;
+        }
+    }
+
     private void Update()
     {
         int value;

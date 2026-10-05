@@ -45,6 +45,14 @@ public class SecConfigController : MonoBehaviour
         var rosConnector = FindObjectOfType<RosConnector>();
         if (rosConnector == null) return;
 
+        // En Simulacion no hay ROS (todo corre en LocalRobotSimulator): reconectar
+        // aca mezclaria estado del robot local con el de ROS.
+        if (RobotMode.IsSimulation)
+        {
+            Debug.LogWarning("[SecConfigController] En modo Simulacion no hay conexion ROS; cambia a Eje. Real para conectar.");
+            return;
+        }
+
         string host = _inputIp   != null ? _inputIp.text.Trim()   : "";
         string port = _inputPort != null ? _inputPort.text.Trim() : "";
         if (string.IsNullOrEmpty(host) || string.IsNullOrEmpty(port))

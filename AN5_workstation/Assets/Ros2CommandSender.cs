@@ -173,9 +173,19 @@ public class Ros2CommandSender : MonoBehaviour
         }
     }
 
-    // Método para enviar un comando al tópico principal de comandos
+    // Método para enviar un comando al tópico principal de comandos.
+    // En modo Simulacion no hay ROS: el comando lo ejecuta LocalRobotSimulator.
     public void SendCommand(string command)
     {
+        if (RobotMode.IsSimulation)
+        {
+            if (LocalRobotSimulator.Instance != null)
+                LocalRobotSimulator.Instance.ProcessCommand(command);
+            else
+                Debug.LogWarning("Ros2CommandSender: modo Simulacion sin LocalRobotSimulator en la escena, comando descartado: " + command);
+            return;
+        }
+
         if (rosSocket == null)
         {
             Debug.LogWarning("Ros2CommandSender: RosSocket aún no está conectado, comando descartado: " + command);
@@ -188,6 +198,12 @@ public class Ros2CommandSender : MonoBehaviour
     // Método para enviar un comando a un tópico específico
     public void SendCommandToTopic(string topic, string command)
     {
+        if (RobotMode.IsSimulation)
+        {
+            LocalRobotSimulator.Instance?.ProcessTopic(topic, command, directaInputTopic, inverseInputTopic);
+            return;
+        }
+
         if (rosSocket == null)
         {
             Debug.LogWarning("Ros2CommandSender: RosSocket aún no está conectado, comando descartado para " + topic);
