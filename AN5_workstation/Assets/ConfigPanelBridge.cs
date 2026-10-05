@@ -16,7 +16,7 @@ public class ConfigPanelBridge : MonoBehaviour
     public Text elapsedTimeText;
 
     private static readonly Color ColorConnected    = Color.green;
-    private static readonly Color ColorDisconnected = new Color(1f, 0.5f, 0f); // orange
+    private static readonly Color ColorDisconnected = new Color(0.961f, 0.773f, 0.094f); // amarillo: el naranja es el acento
 
     private bool _updating = false;
 

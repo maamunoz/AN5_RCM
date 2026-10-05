@@ -119,13 +119,13 @@ public static class VrUiKit
         var row = MakeRow(parent, "Button");
 
         var image = row.gameObject.AddComponent<Image>();
-        image.color = new Color(0.18f, 0.20f, 0.25f, 1f);
+        image.color = new Color(0.17f, 0.17f, 0.17f, 1f);
 
         var button = row.gameObject.AddComponent<Button>();
         button.targetGraphic = image;
         var colors = button.colors;
-        colors.highlightedColor = new Color(0.28f, 0.32f, 0.40f, 1f);
-        colors.pressedColor     = new Color(0.35f, 0.55f, 0.85f, 1f);
+        colors.highlightedColor = new Color(0.27f, 0.27f, 0.27f, 1f);
+        colors.pressedColor     = new Color(0.976f, 0.451f, 0.086f, 1f);
         colors.selectedColor    = colors.highlightedColor;
         button.colors = colors;
 

@@ -123,7 +123,7 @@ namespace RosSharp.RosBridgeClient
                 if (_suspended)
                 {
                     statusText.text = "LOCAL";
-                    statusText.color = new Color(0f, 0.831f, 0.667f, 1f);
+                    statusText.color = new Color(0.976f, 0.451f, 0.086f, 1f);
                 }
                 else if (IsOnline)
                 {

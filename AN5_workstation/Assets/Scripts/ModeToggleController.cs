@@ -11,15 +11,20 @@ public class ModeToggleController : MonoBehaviour
 {
     const string RosUrlReal = "ws://192.168.58.3:9090";
 
-    static readonly Color ActiveBg          = new Color(0.000f, 0.831f, 0.667f, 1.000f);
-    static readonly Color ActiveHighlighted = new Color(0.000f, 0.900f, 0.720f, 1.000f);
-    static readonly Color ActivePressed     = new Color(0.000f, 0.650f, 0.520f, 1.000f);
+    // Tema negro/gris + naranja: #F97316 activo, #FB923C hover, #C2410C presionado.
+    static readonly Color ActiveBg          = new Color(0.976f, 0.451f, 0.086f, 1.000f);
+    static readonly Color ActiveHighlighted = new Color(0.984f, 0.573f, 0.235f, 1.000f);
+    static readonly Color ActivePressed     = new Color(0.761f, 0.255f, 0.047f, 1.000f);
     static readonly Color ActiveText        = new Color(0.000f, 0.000f, 0.000f, 1.000f);
 
     static readonly Color IdleBg            = new Color(0.000f, 0.000f, 0.000f, 0.000f);
-    static readonly Color IdleHighlighted   = new Color(0.000f, 0.831f, 0.667f, 0.300f);
-    static readonly Color IdlePressed       = new Color(0.000f, 0.831f, 0.667f, 0.500f);
-    static readonly Color IdleText          = new Color(0.353f, 0.388f, 0.439f, 1.000f);
+    static readonly Color IdleHighlighted   = new Color(0.976f, 0.451f, 0.086f, 0.300f);
+    static readonly Color IdlePressed       = new Color(0.976f, 0.451f, 0.086f, 0.500f);
+    static readonly Color IdleText          = new Color(0.478f, 0.459f, 0.439f, 1.000f);
+
+    // Valor "Modo" del panel ESTADO DEL SISTEMA; antes era texto fijo "EJEC. REAL".
+    public Text modeStatusText;
+    static readonly Color ModeRealColor = new Color(0.290f, 0.620f, 1.000f, 1.000f);
 
     Button _btnReal, _btnSim;
     Image  _bgReal,  _bgSim;
@@ -70,6 +75,12 @@ public class ModeToggleController : MonoBehaviour
         bool wasSimulation = RobotMode.IsSimulation;
         RobotMode.Set(!realIsActive);
 
+        if (modeStatusText != null)
+        {
+            modeStatusText.text  = realIsActive ? "EJEC. REAL" : "SIMULACIÓN";
+            modeStatusText.color = realIsActive ? ModeRealColor : ActiveBg;
+        }
+
         var rosConnector = FindObjectOfType<RosConnector>();
         if (rosConnector == null) return;
 
@@ -104,7 +115,10 @@ public class ModeToggleController : MonoBehaviour
     void ApplyState(Image bg, Button btn, Text txt, bool active)
     {
         var bgColor = active ? ActiveBg : IdleBg;
-        if (bg != null) bg.color = bgColor;
+        // La imagen va en blanco y el color lo pone solo el tinte del Button: Unity
+        // multiplica Image.color por el tinte, asi que pintar ambos con bgColor lo
+        // aplicaba dos veces (naranja x naranja se veia rojo, igual que el E-STOP).
+        if (bg != null) bg.color = Color.white;
         if (btn != null)
         {
             var cb = btn.colors;

@@ -15,7 +15,7 @@ public class LogPanelController : MonoBehaviour
     public UnityEngine.UI.Button clearButton;
 
     private static readonly Color ColorInfo    = new Color(0.35f, 0.65f, 1f);
-    private static readonly Color ColorWarning = new Color(1f,   0.5f,  0f);
+    private static readonly Color ColorWarning = new Color(0.961f, 0.773f, 0.094f); // amarillo: el naranja es el acento
     private static readonly Color ColorError   = new Color(1f,   0.22f, 0.22f);
 
     private GameObject _template;

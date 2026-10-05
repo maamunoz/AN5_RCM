@@ -18,8 +18,9 @@ public class TabController : MonoBehaviour
     public Text[] textsTabTray;
     public Text[] textsTabMon;
 
-    static readonly Color HighlightColor = new Color(0f, 0.831f, 0.667f, 1f);
-    static readonly Color NormalColor    = new Color(0.353f, 0.388f, 0.439f, 1f);
+    // Tema negro/gris + naranja (#F97316 acento, #7A7570 texto inactivo).
+    static readonly Color HighlightColor = new Color(0.976f, 0.451f, 0.086f, 1f);
+    static readonly Color NormalColor    = new Color(0.478f, 0.459f, 0.439f, 1f);
 
     void Start()
     {

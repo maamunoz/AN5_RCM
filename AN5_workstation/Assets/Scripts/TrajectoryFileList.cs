@@ -161,7 +161,7 @@ public class TrajectoryFileList : MonoBehaviour
         root.sizeDelta = new Vector2(k_PanelWidth, 0f);
 
         var bg = rootGo.AddComponent<Image>();
-        bg.color = new Color(0.05f, 0.05f, 0.07f, 0.96f);
+        bg.color = new Color(0.05f, 0.05f, 0.05f, 0.96f);
 
         var rootLayout = rootGo.AddComponent<VerticalLayoutGroup>();
         rootLayout.padding = new RectOffset((int)k_PanelPadding, (int)k_PanelPadding, (int)k_PanelPadding, (int)k_PanelPadding);

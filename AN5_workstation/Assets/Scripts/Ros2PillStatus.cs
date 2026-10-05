@@ -19,9 +19,10 @@ public class Ros2PillStatus : MonoBehaviour
     static readonly Color GreenFaint  = new Color(0.00f, 0.83f, 0.50f, 0.15f);
     static readonly Color GreenBorder = new Color(0.00f, 0.83f, 0.50f, 0.40f);
 
-    static readonly Color OrangeSolid  = new Color(1.00f, 0.50f, 0.00f, 1.00f);
-    static readonly Color OrangeFaint  = new Color(1.00f, 0.50f, 0.00f, 0.15f);
-    static readonly Color OrangeBorder = new Color(1.00f, 0.50f, 0.00f, 0.40f);
+    // Advertencia/desconectado en amarillo: el naranja es el acento de la interfaz.
+    static readonly Color WarnSolid  = new Color(0.961f, 0.773f, 0.094f, 1.00f);
+    static readonly Color WarnFaint  = new Color(0.961f, 0.773f, 0.094f, 0.15f);
+    static readonly Color WarnBorder = new Color(0.961f, 0.773f, 0.094f, 0.40f);
 
     bool _lastState    = false;
     bool _initialized  = false;
@@ -49,9 +50,9 @@ public class Ros2PillStatus : MonoBehaviour
 
     void Apply(bool online)
     {
-        if (pillBackground != null) pillBackground.color    = online ? GreenFaint  : OrangeFaint;
-        if (pillOutline    != null) pillOutline.effectColor = online ? GreenBorder : OrangeBorder;
-        if (dot            != null) dot.color               = online ? GreenSolid  : OrangeSolid;
+        if (pillBackground != null) pillBackground.color    = online ? GreenFaint  : WarnFaint;
+        if (pillOutline    != null) pillOutline.effectColor = online ? GreenBorder : WarnBorder;
+        if (dot            != null) dot.color               = online ? GreenSolid  : WarnSolid;
         if (label          != null) label.text              = online ? "ROS2 ACTIVO" : "ROS2 INACTIVO";
     }
 }

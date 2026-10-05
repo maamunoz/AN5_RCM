@@ -70,9 +70,9 @@ public class VrWindowGrab : MonoBehaviour
     // quedaba demasiado gruesa.
     const float k_BarHeightFraction = 1f / 15f;
 
-    static readonly Color k_Idle = new Color(0.15f, 0.40f, 0.80f, 0.92f);
-    static readonly Color k_Hover = new Color(0.22f, 0.52f, 0.92f, 0.96f);
-    static readonly Color k_Held = new Color(0.30f, 0.65f, 1.00f, 1.00f);
+    static readonly Color k_Idle = new Color(0.76f, 0.25f, 0.05f, 0.92f);
+    static readonly Color k_Hover = new Color(0.976f, 0.451f, 0.086f, 0.96f);
+    static readonly Color k_Held = new Color(0.984f, 0.573f, 0.235f, 1.00f);
 
     Image _bar;
     XRSimpleInteractable _interactable;

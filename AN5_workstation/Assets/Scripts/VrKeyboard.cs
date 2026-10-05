@@ -214,7 +214,7 @@ public class VrKeyboard : MonoBehaviour
         go.AddComponent<TrackedDeviceGraphicRaycaster>();   // sin esto el rayo del mando no lo ve
 
         var background = go.AddComponent<Image>();
-        background.color = new Color(0.06f, 0.07f, 0.09f, 0.96f);
+        background.color = new Color(0.05f, 0.05f, 0.05f, 0.96f);
 
         var font = ResolveFont();
         var cursor = -k_Pad;
@@ -236,12 +236,12 @@ public class VrKeyboard : MonoBehaviour
         }
 
         // Fila de abajo: 2 + 4 + 2 + 2 columnas, que suman las diez de arriba.
-        var neutral = new Color(0.14f, 0.16f, 0.20f);
+        var neutral = new Color(0.15f, 0.15f, 0.15f);
         var x = k_Pad;
         x = AddWideKey(x, cursor, 2, "Cancelar", font, 30, Cancel, new Color(0.35f, 0.12f, 0.14f));
         x = AddWideKey(x, cursor, 4, "espacio", font, 30, () => Type(" "), neutral);
         x = AddWideKey(x, cursor, 2, "⌫", font, 40, Backspace, neutral);
-        AddWideKey(x, cursor, 2, "OK", font, 34, Accept, new Color(0.06f, 0.35f, 0.29f));
+        AddWideKey(x, cursor, 2, "OK", font, 34, Accept, new Color(0.76f, 0.25f, 0.05f));
     }
 
     /// Coloca una tecla de varias columnas y devuelve la x donde empieza la siguiente.
@@ -272,7 +272,7 @@ public class VrKeyboard : MonoBehaviour
     Text MakeLabel(RectTransform parent, Vector2 topLeft, Vector2 size, string text,
                    Font font, int fontSize, TextAnchor alignment)
     {
-        var box = MakeBox(parent, topLeft, size, new Color(0.02f, 0.03f, 0.04f, 1f));
+        var box = MakeBox(parent, topLeft, size, new Color(0.03f, 0.03f, 0.03f, 1f));
         box.gameObject.name = "Preview";
 
         var labelGo = new GameObject("Text", typeof(RectTransform));
@@ -287,7 +287,7 @@ public class VrKeyboard : MonoBehaviour
         label.font = font;
         label.fontSize = fontSize;
         label.alignment = alignment;
-        label.color = new Color(0f, 0.83f, 0.67f);
+        label.color = new Color(0.976f, 0.451f, 0.086f);
         label.text = text;
         label.horizontalOverflow = HorizontalWrapMode.Overflow;
         return label;
@@ -296,7 +296,7 @@ public class VrKeyboard : MonoBehaviour
     void MakeKey(RectTransform parent, Vector2 topLeft, Vector2 size, string label,
                  Font font, int fontSize, UnityEngine.Events.UnityAction action, Color? color = null)
     {
-        var box = MakeBox(parent, topLeft, size, color ?? new Color(0.11f, 0.13f, 0.16f, 1f));
+        var box = MakeBox(parent, topLeft, size, color ?? new Color(0.12f, 0.12f, 0.12f, 1f));
         box.gameObject.name = "Key " + label;
 
         var labelGo = new GameObject("Text", typeof(RectTransform));

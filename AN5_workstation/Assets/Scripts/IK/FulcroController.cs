@@ -57,6 +57,9 @@ public class FulcroController : MonoBehaviour
     public Slider speedSlider;
     public Text statusLabel;
 
+    [Header("Lectura del valor de cada slider (opcional)")]
+    public Text valueX, valueY, valueZ, valueJ6, valueSpeed;
+
     bool _fulcroActive;
     bool _modoJ6Active;
     bool _updatingSliders;
@@ -86,6 +89,22 @@ public class FulcroController : MonoBehaviour
         if (speedSlider != null) { speedSlider.minValue = 1f; speedSlider.maxValue = 100f; speedSlider.value = 10f; }
 
         SetStatus("FULCRO");
+    }
+
+    void Update()
+    {
+        SetValue(valueX, sliderX, "{0:+0;-0;0} mm");
+        SetValue(valueY, sliderY, "{0:+0;-0;0} mm");
+        SetValue(valueZ, sliderZ, "{0:+0;-0;0} mm");
+        SetValue(valueJ6, sliderJ6, "{0:+0;-0;0}°");
+        SetValue(valueSpeed, speedSlider, "{0:0}%");
+    }
+
+    static void SetValue(Text label, Slider slider, string format)
+    {
+        if (label == null || slider == null) return;
+        string text = string.Format(System.Globalization.CultureInfo.InvariantCulture, format, slider.value);
+        if (label.text != text) label.text = text;
     }
 
     static void ConfigureSlider(Slider s, float range)
