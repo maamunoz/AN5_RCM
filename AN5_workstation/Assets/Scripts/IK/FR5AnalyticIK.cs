@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// Cinematica inversa analitica del FR5v6 (6R desacoplado en muneca), resuelta
@@ -122,13 +123,45 @@ public static class FR5AnalyticIK
     public static Result Solve(Matrix4x4 targetMatrix, float[] currentJointsDeg,
                                float[] minDegOverride = null, float[] maxDegOverride = null)
     {
+        var candidates = SolveAll(targetMatrix, currentJointsDeg, out string reason, minDegOverride, maxDegOverride);
+        if (candidates.Count == 0)
+            return new Result { Success = false, JointsDeg = null, FailureReason = reason };
+
+        float bestCost = float.MaxValue;
+        float[] bestDeg = null;
+        foreach (var deg in candidates)
+        {
+            float cost = SolutionCost(deg, currentJointsDeg);
+            if (bestDeg == null || cost < bestCost) { bestCost = cost; bestDeg = deg; }
+        }
+        return new Result { Success = true, JointsDeg = bestDeg, FailureReason = null };
+    }
+
+    /// Costo de "good solution" de Solve: desplazamiento ponderado desde la pose actual
+    /// mas la preferencia por wrist2 cerca de -90. Publico para quien elija entre las
+    /// candidatas de SolveAll con un criterio extra (p.ej. el acoplamiento del fulcro).
+    public static float SolutionCost(float[] deg, float[] currentJointsDeg)
+    {
+        float cost = Wrist2PreferenceWeight * Mathf.Abs(deg[4] - PreferredWrist2Deg);
+        if (currentJointsDeg != null && currentJointsDeg.Length == 6)
+            for (int row = 0; row < 6; row++)
+                cost += Mathf.Abs(deg[row] - currentJointsDeg[row]) * JointWeights[row];
+        return cost;
+    }
+
+    /// Todas las candidatas (de hasta 8) que reproducen el objetivo, respetan los limites
+    /// y pasan el filtro de la mesa -- sin elegir entre ellas. Cada joint usa la
+    /// representacion (+-360) mas cercana a currentJointsDeg. Si no queda ninguna,
+    /// `failureReason` dice por que.
+    public static List<float[]> SolveAll(Matrix4x4 targetMatrix, float[] currentJointsDeg, out string failureReason,
+                                         float[] minDegOverride = null, float[] maxDegOverride = null)
+    {
         double[,] solutions = InverseKinematicSolutions(targetMatrix);
         bool hasCurrent = currentJointsDeg != null && currentJointsDeg.Length == 6;
 
         bool anyReachesTarget = false;
         bool anyWithinLimits = false;
-        float bestCost = float.MaxValue;
-        float[] bestDeg = null;
+        var valid = new List<float[]>();
 
         for (int col = 0; col < 8; col++)
         {
@@ -173,28 +206,17 @@ public static class FR5AnalyticIK
 
             if (!ClearsTable(deg)) continue;
 
-            float cost = Wrist2PreferenceWeight * Mathf.Abs(deg[4] - PreferredWrist2Deg);
-            if (hasCurrent)
-                for (int row = 0; row < 6; row++)
-                    cost += Mathf.Abs(deg[row] - currentJointsDeg[row]) * JointWeights[row];
-
-            if (bestDeg == null || cost < bestCost)
-            {
-                bestCost = cost;
-                bestDeg = deg;
-            }
+            valid.Add(deg);
         }
 
-        if (bestDeg == null)
+        failureReason = null;
+        if (valid.Count == 0)
         {
-            string reason;
-            if (!anyReachesTarget) reason = "posicion inalcanzable (fuera del espacio de trabajo o singularidad)";
-            else if (!anyWithinLimits) reason = "sin solucion IK dentro de los limites articulares";
-            else reason = "todas las soluciones dentro de limites llevan el codo/muneca contra la mesa";
-            return new Result { Success = false, JointsDeg = null, FailureReason = reason };
+            if (!anyReachesTarget) failureReason = "posicion inalcanzable (fuera del espacio de trabajo o singularidad)";
+            else if (!anyWithinLimits) failureReason = "sin solucion IK dentro de los limites articulares";
+            else failureReason = "todas las soluciones dentro de limites llevan el codo/muneca contra la mesa";
         }
-
-        return new Result { Success = true, JointsDeg = bestDeg, FailureReason = null };
+        return valid;
     }
 
     // true si el codo y la muneca (origenes de los frames DH 2..5) quedan por encima de

@@ -26,8 +26,10 @@ Material:
     m_Ints: []
     m_Floats:
     - _AxisWidth: 2.5
-    - _FadeEnd: 1.4
-    - _FadeStart: 0.7
+    - _DensityFadeMaxPx: 10
+    - _DensityFadeMinPx: 3
+    - _FadeEnd: 20
+    - _FadeStart: 1.2
     - _MajorStep: 0.5
     - _MajorWidth: 1.5
     - _MinorStep: 0.1

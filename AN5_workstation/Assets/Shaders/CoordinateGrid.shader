@@ -22,8 +22,10 @@ Shader "AN5/CoordinateGrid"
         _MajorWidth  ("Ancho mayor (px)", Float) = 1.5
         _AxisWidth   ("Ancho ejes (px)", Float) = 2.5
         _ReachRadius ("Radio de alcance (m)", Float) = 0.886
-        _FadeStart   ("Inicio desvanecido (m)", Float) = 0.7
-        _FadeEnd     ("Fin desvanecido (m)", Float) = 1.4
+        _FadeStart   ("Inicio desvanecido (m)", Float) = 1.2
+        _FadeEnd     ("Fin desvanecido (m)", Float) = 20
+        _DensityFadeMinPx ("Celda invisible bajo (px)", Float) = 3
+        _DensityFadeMaxPx ("Celda completa desde (px)", Float) = 10
         // El proyecto mezcla en espacio lineal: un alfa bajo se ve bastante mas claro de
         // lo que su numero sugiere, asi que la intensidad general se ajusta aqui.
         _Opacity     ("Opacidad general", Range(0, 1)) = 0.35
@@ -47,6 +49,7 @@ Shader "AN5/CoordinateGrid"
             float4 _FillColor, _MinorColor, _MajorColor, _AxisXColor, _AxisYColor, _ReachColor;
             float _MinorStep, _MajorStep, _MinorWidth, _MajorWidth, _AxisWidth;
             float _ReachRadius, _FadeStart, _FadeEnd, _Opacity;
+            float _DensityFadeMinPx, _DensityFadeMaxPx;
 
             struct v2f
             {
@@ -63,12 +66,16 @@ Shader "AN5/CoordinateGrid"
             }
 
             // Cobertura [0,1] de lineas repetidas cada `step`, con ancho en pixeles de pantalla.
+            // Cuando una celda ocupa pocos pixeles (lejos o en angulo rasante) las lineas se
+            // juntan y producen moire; esa familia de lineas se apaga antes de llegar ahi.
             float GridLines(float2 p, float step, float widthPx)
             {
                 float2 c = p / step;
                 float2 d = fwidth(c);
                 float2 g = abs(frac(c - 0.5) - 0.5) / max(d, 1e-5);
-                return 1.0 - saturate(min(g.x, g.y) - (widthPx - 1.0) * 0.5);
+                float cover = 1.0 - saturate(min(g.x, g.y) - (widthPx - 1.0) * 0.5);
+                float cellPx = 1.0 / max(max(d.x, d.y), 1e-5);
+                return cover * smoothstep(_DensityFadeMinPx, _DensityFadeMaxPx, cellPx);
             }
 
             // Cobertura de una sola linea en v = 0.
@@ -104,7 +111,10 @@ Shader "AN5/CoordinateGrid"
                 col = Over(col, ax, Line(p.y, _AxisWidth));
                 col = Over(col, ay, Line(p.x, _AxisWidth));
 
-                col.a *= (1.0 - smoothstep(_FadeStart, _FadeEnd, r)) * _Opacity;
+                // Atenuacion larga y suave (curva cuadratica): el plano no tiene borde, se
+                // disuelve en el negro hacia el horizonte.
+                float fade = 1.0 - smoothstep(_FadeStart, _FadeEnd, r);
+                col.a *= fade * fade * _Opacity;
                 return col;
             }
             ENDCG
