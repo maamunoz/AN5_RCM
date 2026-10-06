@@ -38,6 +38,15 @@ public class SecCoordQueueController : MonoBehaviour
     // was added.
     private readonly List<float> _speeds = new List<float>();
 
+    // Cada ADD (o el acople del fulcro) entra como un bloque: un punto suelto, o un
+    // tramo de varios puntos (camino restringido por el trocar). CLEAR deshace el
+    // ultimo bloque entero y el log muestra los tramos resumidos.
+    private readonly List<int> _blockSizes = new List<int>();
+    private readonly List<string> _blockTags = new List<string>();
+
+    [Tooltip("Fulcro: con el fulcro activo, ADD guarda el camino restringido desde el ADD anterior, no solo la pose final.")]
+    public FulcroController fulcro;
+
     void Start()
     {
         ResolveSliders();
@@ -46,6 +55,8 @@ public class SecCoordQueueController : MonoBehaviour
             ros2CommandSender = FindObjectOfType<Ros2CommandSender>();
         if (jointPositionSubscriber == null)
             jointPositionSubscriber = FindObjectOfType<JointPositionSubscriber>();
+        if (fulcro == null)
+            fulcro = FindObjectOfType<FulcroController>();
 
         if (logText    == null) logText    = transform.Find("Body/QueueLog/Viewport/Content/LogText")?.GetComponent<Text>();
         if (scrollRect == null) scrollRect = transform.Find("Body/QueueLog")?.GetComponent<ScrollRect>();
@@ -140,22 +151,54 @@ public class SecCoordQueueController : MonoBehaviour
             }
         }
 
+        // Con el fulcro activo, entre dos ADD el instrumento siguio un camino que respeta
+        // el trocar; guardar solo la pose final dejaria que la reproduccion interpole en
+        // espacio articular y saque el instrumento del trocar a mitad de tramo.
+        if (fulcro != null && fulcro.TryTakeConstrainedPath(out List<float[]> rcmPath) && rcmPath.Count > 0)
+        {
+            AppendBlock(rcmPath, "RCM");
+            return;
+        }
+
         float[] joints = new float[6];
         for (int i = 0; i < 6; i++)
             joints[i] = sliders[i].value;
 
-        _joints.Add((float[])joints.Clone());
-        _speeds.Add(speed);
+        AppendBlock(new List<float[]> { joints }, null);
+    }
 
+    /// Agrega un bloque de puntos (un ADD) a la cola, todos con la velocidad actual.
+    /// `tag` nombra el tramo en el log (p. ej. "ACOPLE" o "RCM"); null = punto suelto.
+    public void AppendBlock(List<float[]> points, string tag)
+    {
+        if (points == null || points.Count == 0) return;
+        foreach (var p in points)
+        {
+            _joints.Add((float[])p.Clone());
+            _speeds.Add(speed);
+        }
+        _blockSizes.Add(points.Count);
+        _blockTags.Add(tag);
         RefreshLog();
     }
 
+    /// Deshace el ultimo ADD completo (un tramo entero, no un punto suelto del tramo).
     private void ClearLastPosition()
     {
         if (_joints.Count == 0) return;
-        int last = _joints.Count - 1;
-        _joints.RemoveAt(last);
-        _speeds.RemoveAt(last);
+        int n = _blockSizes.Count > 0 ? _blockSizes[_blockSizes.Count - 1] : 1;
+        n = Mathf.Min(n, _joints.Count);
+        _joints.RemoveRange(_joints.Count - n, n);
+        _speeds.RemoveRange(_speeds.Count - n, n);
+        string tag = null;
+        if (_blockSizes.Count > 0)
+        {
+            tag = _blockTags[_blockTags.Count - 1];
+            _blockSizes.RemoveAt(_blockSizes.Count - 1);
+            _blockTags.RemoveAt(_blockTags.Count - 1);
+        }
+        // Un tramo del fulcro deshecho: el proximo ADD debe volver a cubrir ese camino.
+        if (tag != null) fulcro?.OnQueueBlockRemoved();
         RefreshLog();
     }
 
@@ -164,15 +207,26 @@ public class SecCoordQueueController : MonoBehaviour
         if (logText == null) return;
 
         var sb = new StringBuilder();
-        for (int i = 0; i < _joints.Count; i++)
+        int first = 0;
+        for (int b = 0; b < _blockSizes.Count && first < _joints.Count; b++)
         {
-            float[] j = _joints[i];
-            sb.AppendLine(
-                $"P {i + 1}: {j[0]:F1}, {j[1]:F1}, {j[2]:F1}, {j[3]:F1}, {j[4]:F1}, {j[5]:F1}  Speed: {_speeds[i]:F0}");
-
+            int n = _blockSizes[b];
+            int last = Mathf.Min(first + n, _joints.Count) - 1;
+            float[] j = _joints[last];
             float[] cart = LocalForwardKinematics.CartesianFromJointsDeg(j);
+            if (n == 1 && _blockTags[b] == null)
+            {
+                sb.AppendLine(
+                    $"P {first + 1}: {j[0]:F1}, {j[1]:F1}, {j[2]:F1}, {j[3]:F1}, {j[4]:F1}, {j[5]:F1}  Speed: {_speeds[last]:F0}");
+            }
+            else
+            {
+                // Tramo: una linea resumen con la pose final, no un punto por linea.
+                sb.AppendLine($"P {first + 1}-{last + 1} {_blockTags[b] ?? "TRAMO"}: {n} puntos  Speed: {_speeds[last]:F0}");
+            }
             sb.AppendLine(
                 $"    : X:{cart[0]:F1}  Y:{cart[1]:F1}  Z:{cart[2]:F1}  Rx:{cart[3]:F1}  Ry:{cart[4]:F1}  Rz:{cart[5]:F1}");
+            first = last + 1;
         }
 
         logText.text = sb.ToString();
@@ -277,6 +331,8 @@ public class SecCoordQueueController : MonoBehaviour
 
             _joints.Clear();
             _speeds.Clear();
+            _blockSizes.Clear();
+            _blockTags.Clear();
             RefreshLog();
             Debug.Log("[SecCoordQueueController] Queue sent and cleared.");
         }

@@ -55,6 +55,34 @@ public class FulcroController : MonoBehaviour
     [Tooltip("Acoplamiento: distancia de la punta al fulcro, por fuera del puerto, antes de insertar (mm). Debe superar la mitad del largo del cilindro.")]
     public float approachClearanceMm = 70f;
     const float RollSampleDeg = 30f;
+    [Tooltip("Animacion del acoplamiento en la previsualizacion: velocidad de la aproximacion (articular).")]
+    public float dockApproachSpeedDegPerSec = 60f;
+    [Tooltip("Animacion del acoplamiento: velocidad de insercion de la punta por el eje del puerto.")]
+    public float dockInsertSpeedMmPerSec = 25f;
+    const float DockAlignPauseSec = 0.5f;
+    [Tooltip("Campos X/Y/Z (mm, marco del robot) del trocar en el panel. Editables con el fulcro apagado.")]
+    public InputField trocarFieldX, trocarFieldY, trocarFieldZ;
+    [Tooltip("Orientacion del puerto: inclinacion respecto de la vertical (0 = vertical hacia abajo) y azimut de la direccion de insercion en el plano XY del robot (0 = +X, 90 = +Y), grados.")]
+    public InputField trocarFieldIncl, trocarFieldAzim;
+    public float maxTrocarInclDeg = 80f;
+    float _lastAzimDeg; // con inclinacion ~0 el azimut no esta definido: se conserva el ultimo
+
+    [Header("Instrumento visible")]
+    [Tooltip("Visual de la pinza (tool_Link/gripper): se oculta mientras el fulcro esta activo. Solo el visual -- tool_Link lleva Rigidbody/FixedJoint de la cadena URDF.")]
+    public GameObject gripperVisual;
+    [Tooltip("Endoscopio que reemplaza a la pinza con el fulcro activo.")]
+    public EndoscopeVisual endoscope;
+
+    [Header("Selector de herramienta final")]
+    public Button btnToolGripper;
+    public Button btnToolEndoscope;
+
+    public enum EndTool { Gripper, Endoscope }
+    public EndTool CurrentTool { get; private set; } = EndTool.Gripper;
+    EndTool _toolBeforeActivation;
+    bool _toolButtonsLocked;
+    [Tooltip("Distancia fija de la brida del modelo (tool_Link) al TCP de la cadena DH, a lo largo del eje J6, mm. Medida: 199.0 en 7 poses distintas. El endoscopio mide esto + toolLengthMm.")]
+    public float mountToTcpMm = 199f;
 
     [Header("Herramienta")]
     [Tooltip("Longitud total desde el TCP (marco final de la cadena DH) hasta la punta del instrumento, mm.")]
@@ -88,6 +116,10 @@ public class FulcroController : MonoBehaviour
     public Text valueX, valueY, valueZ, valueJ6, valueSpeed;
 
     public bool IsActive => _fulcroActive;
+    /// Trocar bloqueado: fulcro activo o acoplamiento en curso.
+    bool TrocarLocked => _fulcroActive || _docking;
+    bool _docking;
+    Coroutine _activation;
     public float LastRcmErrorMm { get; private set; }
 
     bool _fulcroActive;
@@ -116,6 +148,13 @@ public class FulcroController : MonoBehaviour
         }
         if (btnModoJ6 != null) btnModoJ6.onClick.AddListener(ToggleModoJ6);
         if (btnFijarTrocar != null) btnFijarTrocar.onClick.AddListener(FijarTrocar);
+        foreach (var f in new[] { trocarFieldX, trocarFieldY, trocarFieldZ })
+            if (f != null) f.onEndEdit.AddListener(_ => ApplyTrocarFields());
+        foreach (var f in new[] { trocarFieldIncl, trocarFieldAzim })
+            if (f != null) f.onEndEdit.AddListener(_ => ApplyTrocarAngles());
+        if (btnToolGripper != null) btnToolGripper.onClick.AddListener(() => SelectTool(EndTool.Gripper));
+        if (btnToolEndoscope != null) btnToolEndoscope.onClick.AddListener(() => SelectTool(EndTool.Endoscope));
+        SelectTool(EndTool.Gripper);
         if (sendButton != null) { sendButton.onClick.AddListener(() => StartCoroutine(SendToRobot())); sendButton.interactable = false; }
         if (speedSlider != null) { speedSlider.minValue = 1f; speedSlider.maxValue = 100f; speedSlider.value = 10f; }
 
@@ -130,7 +169,91 @@ public class FulcroController : MonoBehaviour
         SetValue(valueJ6, sliderJ6, "{0:+0;-0;0}°");
         SetValue(valueSpeed, speedSlider, "{0:0}%");
         UpdateTrocarObject();
+        RefreshTrocarFields();
+        if (TrocarLocked != _toolButtonsLocked) { _toolButtonsLocked = TrocarLocked; RefreshToolButtons(); }
         UpdateVisuals();
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Campos X/Y/Z del trocar
+    // ------------------------------------------------------------------ //
+    void RefreshTrocarFields()
+    {
+        RefreshField(trocarFieldX, trocarX);
+        RefreshField(trocarFieldY, trocarY);
+        RefreshField(trocarFieldZ, trocarZ);
+        if (trocarObject != null && robotBase != null)
+        {
+            PortAngles(out float incl, out float azim);
+            RefreshField(trocarFieldIncl, incl);
+            RefreshField(trocarFieldAzim, azim);
+        }
+    }
+
+    /// Inclinacion (0 = vertical hacia abajo) y azimut (0 = +X robot, 90 = +Y) del eje de
+    /// insercion del cilindro.
+    void PortAngles(out float inclDeg, out float azimDeg)
+    {
+        Vector3 a = PortAxis();
+        inclDeg = Mathf.Acos(Mathf.Clamp(-a.z, -1f, 1f)) * Mathf.Rad2Deg;
+        if (inclDeg > 0.5f) _lastAzimDeg = Mathf.Atan2(a.y, a.x) * Mathf.Rad2Deg;
+        azimDeg = _lastAzimDeg;
+    }
+
+    void ApplyTrocarAngles()
+    {
+        if (TrocarLocked || trocarObject == null || robotBase == null) return;
+        PortAngles(out float curIncl, out float curAzim);
+        if (!TryParseMm(trocarFieldIncl, curIncl, out float incl) || !TryParseMm(trocarFieldAzim, curAzim, out float azim))
+        {
+            SetStatus("TROCAR: angulo no valido");
+            return;
+        }
+        incl = Mathf.Clamp(incl, 0f, maxTrocarInclDeg);
+        azim = Mathf.Repeat(azim + 180f, 360f) - 180f;
+        _lastAzimDeg = azim;
+
+        float i = incl * Mathf.Deg2Rad, z = azim * Mathf.Deg2Rad;
+        var axis = new Vector3(Mathf.Sin(i) * Mathf.Cos(z), Mathf.Sin(i) * Mathf.Sin(z), -Mathf.Cos(i)); // marco robot, hacia adentro
+        trocarObject.rotation = Quaternion.FromToRotation(Vector3.up, -RobotDirToWorld(axis));
+        SetStatus($"TROCAR incl {incl:F0}° azim {azim:F0}°");
+    }
+
+    void RefreshField(InputField f, float valueMm)
+    {
+        if (f == null) return;
+        // Bloqueados con el fulcro activo, igual que el cilindro.
+        if (f.interactable == TrocarLocked) f.interactable = !TrocarLocked;
+        if (f.isFocused) return; // no pisar lo que el usuario esta escribiendo
+        string text = valueMm.ToString("F0", System.Globalization.CultureInfo.InvariantCulture);
+        if (f.text != text) f.SetTextWithoutNotify(text);
+    }
+
+    void ApplyTrocarFields()
+    {
+        if (TrocarLocked) return;
+        if (!TryParseMm(trocarFieldX, trocarX, out float x) ||
+            !TryParseMm(trocarFieldY, trocarY, out float y) ||
+            !TryParseMm(trocarFieldZ, trocarZ, out float z))
+        {
+            SetStatus("TROCAR: valor no valido");
+            return; // RefreshTrocarFields restaura el valor vigente
+        }
+
+        var mm = new Vector3(x, y, z);
+        if (trocarObject != null && robotBase != null) trocarObject.position = RobotToWorld(mm);
+        trocarX = x; trocarY = y; trocarZ = z;
+        trocarRegistered = true;
+        SetStatus($"TROCAR ({x:F0}, {y:F0}, {z:F0})");
+    }
+
+    static bool TryParseMm(InputField f, float current, out float value)
+    {
+        value = current;
+        if (f == null) return true;
+        string s = f.text.Trim().Replace(',', '.');
+        return float.TryParse(s, System.Globalization.NumberStyles.Float,
+                              System.Globalization.CultureInfo.InvariantCulture, out value);
     }
 
     static void SetValue(Text label, Slider slider, string format)
@@ -150,7 +273,7 @@ public class FulcroController : MonoBehaviour
     // ------------------------------------------------------------------ //
     void OnToggleChanged(bool isOn)
     {
-        if (isOn) StartCoroutine(ActivateFulcro());
+        if (isOn) _activation = StartCoroutine(ActivateFulcro());
         else Deactivate();
     }
 
@@ -161,9 +284,15 @@ public class FulcroController : MonoBehaviour
         if (sendButton != null) sendButton.interactable = false;
         if (sliderJ6 != null) sliderJ6.interactable = false;
         SetStatus("SINCRONIZANDO...");
+        // Con el fulcro activo el instrumento es el endoscopio (el selector queda bloqueado).
+        _toolBeforeActivation = CurrentTool;
+        SelectTool(EndTool.Endoscope, force: true);
 
         _path.Clear();
         _path.Add(ReadSliderDeg());
+        _queuePath.Clear();
+        _queuePath.Add(_path[0]);
+        ResetQueueMarks();
         string docked = null;
 
         if (trocarObject != null)
@@ -174,16 +303,34 @@ public class FulcroController : MonoBehaviour
             SyncTrocarFromObject();
             if (!InstrumentThroughTrocar(ReadSliderDeg()))
             {
-                if (!PlanDocking(ReadSliderDeg(), out List<float[]> dockPath, out string failure))
+                if (!PlanDocking(ReadSliderDeg(), out List<float[]> dockPath, out int approachCount, out string failure))
                 {
                     if (modeToggle != null) modeToggle.SetIsOnWithoutNotify(false);
+                    SelectTool(_toolBeforeActivation, force: true);
                     SetStatus("TROCAR INALCANZABLE: " + failure);
                     yield break;
                 }
                 _path.AddRange(dockPath);
-                ApplyToSliders(dockPath[dockPath.Count - 1]);
+                _queuePath.AddRange(dockPath);
+                _lockedTrocarPos = trocarObject.position;
+                _lockedTrocarRot = trocarObject.rotation;
+                _docking = true;
+                yield return AnimateDocking(dockPath, approachCount);
+                _docking = false;
                 _lastSolvedDeg = dockPath[dockPath.Count - 1];
                 docked = $"ACOPLADO · {ThinPath(_path, PathResolutionDeg).Count - 1} puntos · ENVIAR";
+
+                // El acople queda como primer tramo de la trayectoria que se grabe desde
+                // aca: al reproducirla, el robot entra por el trocar antes de los ADD.
+                if (secCoordQueueController != null)
+                {
+                    var dockPts = ThinPath(_queuePath, PathResolutionDeg);
+                    dockPts.RemoveAt(0);
+                    secCoordQueueController.AppendBlock(dockPts, "ACOPLE");
+                    _queueMarkHistory.Push(_queueMark);
+                    _queueMark = _queuePath.Count - 1;
+                    docked += " · en cola";
+                }
             }
         }
         // Sin trocar registrado se fija sobre el eje actual del instrumento: asi el
@@ -211,15 +358,102 @@ public class FulcroController : MonoBehaviour
         if (sendButton != null) sendButton.interactable = true;
         RecomputePreview();
         if (docked != null) SetStatus(docked);
+        _activation = null;
+    }
+
+    /// Recorre el camino de acoplamiento en la previsualizacion: la aproximacion a
+    /// dockApproachSpeedDegPerSec (articular) y la insercion -- pasos de JogStepMm por el
+    /// eje del puerto -- a dockInsertSpeedMmPerSec, para que se vea entrar el endoscopio
+    /// por la boca del trocar. Solo previsualiza; el robot se mueve con "Enviar".
+    IEnumerator AnimateDocking(List<float[]> dockPath, int approachCount)
+    {
+        SetStatus("ACOPLANDO · aproximacion");
+        float[] prev = ReadSliderDeg();
+        float budget = 0f; // segundos acumulados disponibles para avanzar puntos
+        for (int i = 0; i < dockPath.Count; i++)
+        {
+            if (i == approachCount)
+            {
+                // Pausa de alineacion: el modelo interpola unos cuadros detras de los
+                // sliders; sin ella empieza a insertar mientras todavia termina de llegar
+                // al eje del puerto.
+                SetStatus("ACOPLANDO · alineando");
+                yield return new WaitForSeconds(DockAlignPauseSec);
+                budget = 0f;
+                SetStatus("ACOPLANDO · insercion");
+            }
+            // Duracion de este punto: aproximacion por giro articular, insercion por mm.
+            float dt = i < approachCount
+                ? MaxAbsDelta(dockPath[i], prev) / Mathf.Max(1f, dockApproachSpeedDegPerSec)
+                : JogStepMm / Mathf.Max(1f, dockInsertSpeedMmPerSec);
+            while (budget < dt)
+            {
+                yield return null;
+                budget += Time.deltaTime;
+            }
+            budget -= dt;
+            ApplyToSliders(dockPath[i]);
+            prev = dockPath[i];
+        }
     }
 
     void Deactivate()
     {
+        if (_activation != null) { StopCoroutine(_activation); _activation = null; }
+        _docking = false;
         _fulcroActive = false;
         _modoJ6Active = false;
         if (sendButton != null) sendButton.interactable = false;
         if (sliderJ6 != null) { sliderJ6.value = 0f; sliderJ6.interactable = false; }
+        RefreshToolButtons(); // se desbloquea; la herramienta elegida se conserva
         SetStatus("FULCRO");
+    }
+
+    // ------------------------------------------------------------------ //
+    //  Selector de herramienta final (GRIPPER | ENDOSCOPIO)
+    // ------------------------------------------------------------------ //
+    static readonly Color ToolActiveBg = new Color(0.976f, 0.451f, 0.086f, 1f);
+    static readonly Color ToolIdleBg   = new Color(0.212f, 0.212f, 0.212f, 1f);
+    static readonly Color ToolActiveTx = new Color(0f, 0f, 0f, 1f);
+    static readonly Color ToolIdleTx   = new Color(0.929f, 0.918f, 0.902f, 1f);
+
+    /// Muestra la herramienta elegida en el robot. Bloqueado con el fulcro activo o
+    /// acoplando (no se cambia de instrumento con uno insertado) salvo `force`, que usa
+    /// la propia activacion.
+    public void SelectTool(EndTool tool, bool force = false)
+    {
+        if (TrocarLocked && !force) return;
+        CurrentTool = tool;
+        bool endo = tool == EndTool.Endoscope;
+        if (gripperVisual != null) gripperVisual.SetActive(!endo);
+        if (endoscope != null) endoscope.gameObject.SetActive(endo);
+        RefreshToolButtons();
+    }
+
+    void RefreshToolButtons()
+    {
+        bool locked = TrocarLocked;
+        StyleToolButton(btnToolGripper, CurrentTool == EndTool.Gripper, locked);
+        StyleToolButton(btnToolEndoscope, CurrentTool == EndTool.Endoscope, locked);
+    }
+
+    static void StyleToolButton(Button b, bool active, bool locked)
+    {
+        if (b == null) return;
+        b.interactable = !locked;
+        var img = b.targetGraphic as Image;
+        if (img != null) img.color = active ? ToolActiveBg : ToolIdleBg;
+        var cb = b.colors;
+        cb.normalColor = Color.white; cb.selectedColor = Color.white;
+        cb.highlightedColor = new Color(0.85f, 0.85f, 0.85f, 1f);
+        cb.pressedColor = new Color(0.7f, 0.7f, 0.7f, 1f);
+        // Bloqueado: se oscurece pero la opcion activa sigue leyendose. Opaco: con alfa,
+        // el contorno naranja del boton se transparentaba y la opcion inactiva parecia
+        // seleccionada.
+        cb.disabledColor = active ? new Color(0.85f, 0.85f, 0.85f, 1f) : new Color(0.55f, 0.55f, 0.55f, 1f);
+        b.colors = cb;
+        var t = b.GetComponentInChildren<Text>();
+        if (t != null) t.color = active ? ToolActiveTx : ToolIdleTx;
     }
 
     static bool HasNonZero(float[] v)
@@ -234,7 +468,7 @@ public class FulcroController : MonoBehaviour
     /// mover el pivote a mitad de un jog cambiaria la restriccion bajo el usuario.
     public void FijarTrocar()
     {
-        if (_fulcroActive) { SetStatus("Desactiva el fulcro para fijar el trocar"); return; }
+        if (TrocarLocked) { SetStatus("Desactiva el fulcro para fijar el trocar"); return; }
 
         CurrentInstrument(out _, out Vector3 axis, out Vector3 tip);
         float depth = Mathf.Clamp(insertionDepthMm, 1f, toolLengthMm - 1f);
@@ -281,7 +515,7 @@ public class FulcroController : MonoBehaviour
     {
         if (trocarObject == null || robotBase == null) return;
 
-        if (_fulcroActive)
+        if (TrocarLocked)
         {
             // Bloqueado: mover el pivote con el instrumento insertado no tiene sentido
             // fisico. Para moverlo: desactivar, mover y volver a acoplar.
@@ -307,7 +541,7 @@ public class FulcroController : MonoBehaviour
             _checkedTrocarPos = trocarObject.position;
             _checkedTrocarRot = trocarObject.rotation;
             _checkedFromDeg = from;
-            _trocarReachable = InstrumentThroughTrocar(from) || PlanDocking(from, out _, out _);
+            _trocarReachable = InstrumentThroughTrocar(from) || PlanDocking(from, out _, out _, out _);
         }
         SetTrocarColor(_trocarReachable ? TrocarOk : TrocarBlocked);
     }
@@ -340,9 +574,10 @@ public class FulcroController : MonoBehaviour
     ///      insertionDepthMm mas alla del fulcro, en pasos de JogStepMm y con el mismo
     ///      freno ante cambios de rama que el jog.
     /// `path` no incluye la pose de partida.
-    bool PlanDocking(float[] fromDeg, out List<float[]> path, out string failure)
+    bool PlanDocking(float[] fromDeg, out List<float[]> path, out int approachCount, out string failure)
     {
         path = null;
+        approachCount = 0;
         Vector3 rcm = new Vector3(trocarX, trocarY, trocarZ);
         Vector3 axis = PortAxis();
         Vector3 preTip = rcm - axis * approachClearanceMm;
@@ -372,9 +607,18 @@ public class FulcroController : MonoBehaviour
             failure = "aproximacion: " + reason;
             return false;
         }
-        // Las de menor costo primero: la primera rama que completa la insercion gana, y
-        // no hace falta simular las demas.
-        candidates.Sort((a, b) => FR5AnalyticIK.SolutionCost(a, fromDeg).CompareTo(FR5AnalyticIK.SolutionCost(b, fromDeg)));
+        // Codo arriba (J3 > 0, postura grua) primero, de forma ESTRICTA: el acople es
+        // justo cuando el brazo baja hacia el area de trabajo sobre el fulcro. El peso
+        // suave de FR5AnalyticIK no siempre alcanza (p. ej. trocar detras del robot: codo
+        // arriba viable con costo 695 vs codo abajo 564). Codo abajo solo si ninguna rama
+        // con codo arriba completa la insercion. Dentro de cada grupo, menor costo
+        // primero: la primera rama que completa la insercion gana.
+        candidates.Sort((a, b) =>
+        {
+            int byElbow = (a[2] > 0f ? 0 : 1).CompareTo(b[2] > 0f ? 0 : 1);
+            return byElbow != 0 ? byElbow
+                : FR5AnalyticIK.SolutionCost(a, fromDeg).CompareTo(FR5AnalyticIK.SolutionCost(b, fromDeg));
+        });
 
         failure = "insercion: cambio de configuracion en todas las ramas";
         foreach (float[] pre in candidates)
@@ -395,6 +639,7 @@ public class FulcroController : MonoBehaviour
                 for (int i = 0; i < 6; i++) q[i] = Mathf.Lerp(fromDeg[i], pre[i], t);
                 path.Add(q);
             }
+            approachCount = path.Count; // de aca en adelante, la insercion
             path.AddRange(insertion);
             failure = null;
             return true;
@@ -472,6 +717,43 @@ public class FulcroController : MonoBehaviour
     readonly List<float[]> _path = new List<float[]>();
     const float PathResolutionDeg = 2f;
 
+    // Indice de _path hasta el que el camino ya esta en la cola de trayectoria
+    // (SecCoordQueueController); la pila guarda las marcas previas para que CLEAR, al
+    // deshacer un tramo, haga que el proximo ADD lo vuelva a cubrir.
+    // _queuePath: todo lo recorrido desde que se activo el fulcro (no se vacia al
+    // "Enviar", a diferencia de _path), del que la cola toma tramos.
+    readonly List<float[]> _queuePath = new List<float[]>();
+    int _queueMark;
+    readonly Stack<int> _queueMarkHistory = new Stack<int>();
+
+    /// Con el fulcro activo: el camino restringido recorrido desde el ultimo tramo
+    /// encolado (reducido a un punto cada PathResolutionDeg, sin la pose de partida, que
+    /// ya esta en la cola) y avanza la marca. False con el fulcro apagado.
+    public bool TryTakeConstrainedPath(out List<float[]> points)
+    {
+        points = null;
+        if (!_fulcroActive || _queuePath.Count == 0) return false;
+        int from = Mathf.Clamp(_queueMark, 0, _queuePath.Count - 1);
+        points = ThinPath(_queuePath.GetRange(from, _queuePath.Count - from), PathResolutionDeg);
+        points.RemoveAt(0);
+        if (points.Count == 0) return true; // sin movimiento desde el ultimo ADD
+        _queueMarkHistory.Push(_queueMark);
+        _queueMark = _queuePath.Count - 1;
+        return true;
+    }
+
+    /// La cola deshizo su ultimo tramo del fulcro.
+    public void OnQueueBlockRemoved()
+    {
+        if (_queueMarkHistory.Count > 0) _queueMark = _queueMarkHistory.Pop();
+    }
+
+    void ResetQueueMarks()
+    {
+        _queueMark = 0;
+        _queueMarkHistory.Clear();
+    }
+
     void RecomputePreview()
     {
         if (_updatingSliders || !_fulcroActive || _modoJ6Active) return;
@@ -505,6 +787,7 @@ public class FulcroController : MonoBehaviour
             }
             seed = sol; good = sol; goodOffset = offset;
             _path.Add(sol);
+            _queuePath.Add(sol);
         }
 
         if (good != null)
@@ -652,6 +935,7 @@ public class FulcroController : MonoBehaviour
         float[] deg = (float[])_baseAnglesJ6.Clone();
         deg[5] += offsetDeg;
         _lastSolvedDeg = deg;
+        _queuePath.Add(deg);
         _path.Add(deg); // girar solo J6 no mueve el eje del instrumento: cualquier tramo es seguro
         ApplyToSliders(deg);
     }
@@ -794,15 +1078,21 @@ public class FulcroController : MonoBehaviour
     void UpdateVisuals()
     {
         if (robotBase == null) return;
+        bool endoscopeOn = endoscope != null && endoscope.gameObject.activeSelf;
+        if (endoscopeOn) PoseEndoscope();
+
         bool show = trocarRegistered;
         if (_instrumentLine == null)
         {
             if (!show) return;
             BuildVisuals();
         }
-        _instrumentLine.gameObject.SetActive(show);
+        // Con un endoscopio en la escena la linea y la punta sobran: el instrumento real es
+        // el cuerpo modelado (visible con el fulcro activo). Solo se dibujan sin endoscopio.
+        bool drawInstrument = show && endoscope == null;
+        _instrumentLine.gameObject.SetActive(drawInstrument);
+        _tipMarker.gameObject.SetActive(drawInstrument);
         _trocarMarker.gameObject.SetActive(show && trocarObject == null); // el cilindro ya marca el fulcro
-        _tipMarker.gameObject.SetActive(show);
         if (!show) return;
 
         CurrentInstrument(out Vector3 tcp, out _, out Vector3 tip);
@@ -810,6 +1100,33 @@ public class FulcroController : MonoBehaviour
         _instrumentLine.SetPosition(1, RobotToWorld(tip));
         _tipMarker.position = RobotToWorld(tip);
         _trocarMarker.position = RobotToWorld(new Vector3(trocarX, trocarY, trocarZ));
+    }
+
+    /// Endoscopio como cuerpo rigido de la brida del modelo: posicion, eje (+Y local de
+    /// tool_Link, que coincide con el eje J6 de la cadena DH) y roll salen de la brida,
+    /// y el largo es fijo (mountToTcpMm + toolLengthMm). No se calcula contra la punta DH
+    /// de los sliders: el modelo interpola hacia cada pose nueva (o sigue al robot) y va
+    /// unos cuadros detras, asi que esa distancia variaba en movimiento y la vaina se
+    /// estiraba. En reposo ambas coinciden (punta a 0.0 mm, brida a 0.1 mm del eje).
+    void PoseEndoscope()
+    {
+        float lengthM = (mountToTcpMm + toolLengthMm) / 1000f;
+        if (instrumentMount != null)
+        {
+            endoscope.transform.SetPositionAndRotation(instrumentMount.position,
+                Quaternion.LookRotation(instrumentMount.right, instrumentMount.up));
+        }
+        else
+        {
+            // Sin modelo de referencia: alineado con la cadena DH, desde el TCP.
+            CurrentInstrument(out Vector3 tcp, out Vector3 axis, out _);
+            Vector3 dir = RobotDirToWorld(axis).normalized;
+            Vector3 side = Vector3.Cross(dir, Vector3.forward);
+            if (side.sqrMagnitude < 1e-6f) side = Vector3.Cross(dir, Vector3.right);
+            endoscope.transform.SetPositionAndRotation(RobotToWorld(tcp) - dir * (mountToTcpMm / 1000f),
+                Quaternion.LookRotation(side.normalized, dir));
+        }
+        endoscope.SetLength(lengthM);
     }
 
     void BuildVisuals()

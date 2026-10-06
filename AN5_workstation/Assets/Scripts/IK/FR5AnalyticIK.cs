@@ -99,6 +99,18 @@ public static class FR5AnalyticIK
     public const float PreferredWrist2Deg = -90f;
     public const float Wrist2PreferenceWeight = 1f;
 
+    // Postura "grua" (brazo por encima, codo arriba): evita que el brazo baje hacia el
+    // area de trabajo sobre el fulcro y choque con lo que haya ahi.
+    //  - Shoulder (J2) <= ShoulderMaxDeg: limite DURO, ninguna solucion lo supera (los
+    //    sliders de J2 ya cortaban en -45; esto lo aplica tambien donde se usaban los
+    //    limites del URDF, hasta +85).
+    //  - Elbow (J3) > 0: preferencia SUAVE, ElbowNegativeWeight por cada grado bajo 0.
+    //    Proporcional y no constante: dentro de un jog continuo no empuja a saltar de
+    //    rama, pero al elegir entre ramas (acoplamiento, primer punto de una
+    //    trayectoria) prefiere claramente el codo arriba.
+    public const float ShoulderMaxDeg = -45f;
+    public const float ElbowNegativeWeight = 2f;
+
     /// Resuelve IK para la pose cartesiana dada y devuelve la solucion (de hasta 8
     /// candidatas) mas cercana a currentJointsDeg -- ver Solve(Matrix4x4, ...).
     public static Result Solve(float xMm, float yMm, float zMm, float rxDeg, float ryDeg, float rzDeg,
@@ -110,7 +122,8 @@ public static class FR5AnalyticIK
     /// "Good solution": de las candidatas que alcanzan el objetivo, respetan los limites
     /// articulares y pasan el filtro de colision, elige la MAS CERCANA a la pose actual:
     /// menor suma de desplazamientos articulares ponderados por JointWeights, mas una
-    /// preferencia por wrist2 cerca de -90 (ver PreferredWrist2Deg).
+    /// preferencia por wrist2 cerca de -90 (ver PreferredWrist2Deg) y por el codo
+    /// arriba (J3 > 0); shoulder nunca pasa de -45 (postura grua, ver ShoulderMaxDeg).
     /// Elegido comparando criterios sobre las trayectorias reales de routines/ (106
     /// puntos): frente a la suma sin ponderar redujo el giro maximo de un joint en un
     /// paso de 297 a 188 grados, el barrido del brazo (J1-J3) un 22% y el recorrido
@@ -142,7 +155,8 @@ public static class FR5AnalyticIK
     /// candidatas de SolveAll con un criterio extra (p.ej. el acoplamiento del fulcro).
     public static float SolutionCost(float[] deg, float[] currentJointsDeg)
     {
-        float cost = Wrist2PreferenceWeight * Mathf.Abs(deg[4] - PreferredWrist2Deg);
+        float cost = Wrist2PreferenceWeight * Mathf.Abs(deg[4] - PreferredWrist2Deg)
+                   + ElbowNegativeWeight * Mathf.Max(0f, -deg[2]);
         if (currentJointsDeg != null && currentJointsDeg.Length == 6)
             for (int row = 0; row < 6; row++)
                 cost += Mathf.Abs(deg[row] - currentJointsDeg[row]) * JointWeights[row];
@@ -193,6 +207,7 @@ public static class FR5AnalyticIK
             {
                 float min = Mathf.Max(Fr5DhTable.JointMinDeg[row], minDegOverride != null ? minDegOverride[row] : float.MinValue);
                 float max = Mathf.Min(Fr5DhTable.JointMaxDeg[row], maxDegOverride != null ? maxDegOverride[row] : float.MaxValue);
+                if (row == 1) max = Mathf.Min(max, ShoulderMaxDeg); // postura grua, ver ShoulderMaxDeg
                 float raw = (float)(solutions[row, col] * Mathf.Rad2Deg);
                 float reference = hasCurrent ? currentJointsDeg[row] : 0f;
                 if (!TryBringWithinLimits(raw, min, max, reference, out deg[row]))
