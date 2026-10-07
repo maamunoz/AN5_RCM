@@ -30921,7 +30921,7 @@ MonoBehaviour:
     m_LineSpacing: 1
   m_Text: 'Cargando trayectoria...
 
-    Calculando posiciones (MATLAB)'
+    Calculando posiciones (IK)'
 --- !u!222 &601561179
 CanvasRenderer:
   m_ObjectHideFlags: 0

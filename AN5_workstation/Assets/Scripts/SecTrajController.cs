@@ -24,7 +24,7 @@ public class SecTrajController : MonoBehaviour
              "When false (default), the whole file is queued via SplineStart/SplinePTP/SplineEnd (same mechanism " +
              "ControlArticular.cs already uses for joint trajectories): the robot/mock executes the queue in order " +
              "on its own, so long files run fluidly instead of paying a flat per-point delay. Either way, motion is " +
-             "sent in JOINT space (JNTPoint/MoveJ/SplinePTP(JNT...)), with IK resolved by ROS/MATLAB per point " +
+             "sent in JOINT space (JNTPoint/MoveJ/SplinePTP(JNT...)), with IK resolved locally (FR5AnalyticIK) per point " +
              "before execution starts (see ResolveJointTrajectory) -- CARTPoint/MoveL(CART...)/SplinePTP(CART...) " +
              "depend on the real robot controller's own onboard GetInverseKin, which has been failing on real " +
              "hardware, so cartesian commands are never sent directly to the robot.")]
@@ -263,11 +263,11 @@ public class SecTrajController : MonoBehaviour
 
         if (_points.Count > 0)
         {
-            // ResolveJointTrajectory can take several seconds (each point is a round-trip
-            // to the ROS/MATLAB IK node, see that method's comment) -- block the rest of
-            // the UI behind a modal overlay for that stretch so the user can't press
-            // another button mid-load and think the app is frozen. Hide() runs no matter
-            // how the coroutine below finished (success, rejected point, or timeout).
+            // ResolveJointTrajectory solves every point with the local IK (see that
+            // method's comment) -- block the rest of the UI behind a modal overlay for
+            // that stretch so the user can't press another button mid-load and think
+            // the app is frozen. Hide() runs no matter how the coroutine below finished
+            // (success, rejected point, or timeout).
             loadingOverlay?.Show();
             yield return StartCoroutine(ResolveJointTrajectory());
             loadingOverlay?.Hide();
