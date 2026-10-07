@@ -254,6 +254,12 @@ public static class FR5AnalyticIK
     // esta centrado en 0 (-265..85, ver Fr5DhTable) -- la misma solucion fisica puede
     // necesitar +-360 para caer dentro del limite. De las variantes que entran, devuelve
     // la mas cercana a reference (la pose actual) para no forzar una vuelta completa.
+    // Ruido de float de la IK (~1e-4 deg): sin esta tolerancia un punto grabado justo
+    // en un limite (p.ej. J2 = -45 con el slider a tope, ver ShoulderMaxDeg) sale como
+    // -44.99997, se descarta y la IK salta a otra rama lejana. El valor devuelto se
+    // recorta al limite, asi que nunca se manda nada fuera de [min, max].
+    private const float LimitToleranceDeg = 0.01f;
+
     private static bool TryBringWithinLimits(float raw, float min, float max, float reference, out float result)
     {
         result = raw;
@@ -262,7 +268,8 @@ public static class FR5AnalyticIK
         for (int k = -1; k <= 1; k++)
         {
             float candidate = raw + 360f * k;
-            if (candidate < min || candidate > max) continue;
+            if (candidate < min - LimitToleranceDeg || candidate > max + LimitToleranceDeg) continue;
+            candidate = Mathf.Clamp(candidate, min, max);
             float dist = Mathf.Abs(candidate - reference);
             if (dist < bestDist)
             {
